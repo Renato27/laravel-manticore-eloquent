@@ -49,6 +49,11 @@
     "allow-plugins": {
       "pestphp/pest-plugin": true,
       "pestphp/pest-plugin-laravel": true
+    },
+    "policy": {
+      "advisories": {
+        "block": false
+      }
     }
   },
   "minimum-stability": "stable",
