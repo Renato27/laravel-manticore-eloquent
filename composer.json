@@ -1,0 +1,56 @@
+{
+  "name": "renatomaldonado/laravel-manticore-eloquent",
+  "description": "Use Eloquent natively on Manticore Search — a Laravel database driver over the Manticore MySQL protocol.",
+  "type": "library",
+  "keywords": ["laravel", "eloquent", "manticore", "manticoresearch", "search", "database-driver", "full-text"],
+  "license": "MIT",
+  "require": {
+    "php": "^8.1",
+    "illuminate/database": "^10.0|^11.0|^12.0",
+    "illuminate/support": "^10.0|^11.0|^12.0"
+  },
+  "require-dev": {
+    "orchestra/testbench": "^8.0|^9.0|^10.0",
+    "pestphp/pest": "^2.0|^3.0",
+    "pestphp/pest-plugin-laravel": "^2.0|^3.0",
+    "mockery/mockery": "^1.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "ManticoreEloquent\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "vendor/bin/pest",
+    "test:unit": "vendor/bin/pest --testsuite=Unit",
+    "test:integration": "vendor/bin/pest --testsuite=Integration",
+    "test:coverage": "vendor/bin/pest --coverage",
+    "test:coverage-min": "vendor/bin/pest --coverage --min=95"
+  },
+  "authors": [
+    {
+      "name": "renato maldonado",
+      "email": "mallldonado@gmail.com"
+    }
+  ],
+  "extra": {
+    "laravel": {
+      "providers": [
+        "ManticoreEloquent\\ManticoreEloquentServiceProvider"
+      ]
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "pestphp/pest-plugin": true,
+      "pestphp/pest-plugin-laravel": true
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
