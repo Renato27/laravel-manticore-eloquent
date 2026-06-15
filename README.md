@@ -29,6 +29,9 @@ method, we implement a thin Manticore grammar and inherit the whole framework.
 
 ```bash
 composer require renatomaldonado/laravel-manticore-eloquent
+```
+
+```bash
 php artisan vendor:publish --provider="ManticoreEloquent\ManticoreEloquentServiceProvider" --tag=config
 ```
 
