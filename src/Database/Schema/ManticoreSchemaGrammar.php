@@ -396,6 +396,10 @@ class ManticoreSchemaGrammar extends Grammar
             $parts[] = "hnsw_similarity='{$column->similarity}'";
         }
 
+        foreach ((array) ($column->knnOptions ?? []) as $key => $value) {
+            $parts[] = $key . "='" . $value . "'";
+        }
+
         return implode(' ', $parts);
     }
 

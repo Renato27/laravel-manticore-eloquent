@@ -102,8 +102,8 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
         }
 
         if (! Blueprint::hasMacro('floatVector')) {
-            Blueprint::macro('floatVector', function (string $column, ?int $dims = null, string $knnType = 'hnsw', string $similarity = 'L2') {
-                return $this->addColumn('floatVector', $column, compact('dims', 'knnType', 'similarity'));
+            Blueprint::macro('floatVector', function (string $column, ?int $dims = null, string $knnType = 'hnsw', string $similarity = 'L2', array $knnOptions = []) {
+                return $this->addColumn('floatVector', $column, compact('dims', 'knnType', 'similarity', 'knnOptions'));
             });
         }
 
