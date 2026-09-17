@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
+use ManticoreEloquent\Eloquent\Casts\VectorCast;
 use ManticoreEloquent\Eloquent\ManticoreModel;
 
 /**
@@ -17,6 +18,14 @@ class IntegrationArticle extends ManticoreModel
     protected $table = 'it_articles_rt';
     protected $guarded = [];
     public $timestamps = false;
+}
+
+class IntegrationVector extends ManticoreModel
+{
+    protected $table = 'it_vectors_rt';
+    protected $guarded = [];
+    public $timestamps = false;
+    protected $casts = ['embedding' => VectorCast::class];
 }
 
 beforeEach(function () {
@@ -103,9 +112,10 @@ it('runs a knn vector search ordered by distance', function () {
         $table->floatVector('embedding', 4);
     });
 
-    // float_vector literals aren't expressible as bindings, so seed them with raw SQL.
-    $conn->statement('insert into it_vectors_rt (id, embedding) values (1, (0.1,0.1,0.1,0.1))');
-    $conn->statement('insert into it_vectors_rt (id, embedding) values (2, (0.9,0.9,0.9,0.9))');
+    IntegrationVector::create(['id' => 1, 'embedding' => [0.1, 0.1, 0.1, 0.1]]);
+    IntegrationVector::create(['id' => 2, 'embedding' => [0.9, 0.9, 0.9, 0.9]]);
+
+    expect(IntegrationVector::query()->where('id', 2)->first()->embedding)->toBe([0.9, 0.9, 0.9, 0.9]);
 
     $ids = $conn->table('it_vectors_rt')
         ->knn('embedding', [0.1, 0.1, 0.1, 0.1], 2)
@@ -113,7 +123,21 @@ it('runs a knn vector search ordered by distance', function () {
         ->all();
 
     expect($ids)->toContain(1);
-    expect($ids[0])->toBe(1); // nearest neighbour first
+    expect($ids[0])->toBe(1);
+
+    $similar = $conn->table('it_vectors_rt')
+        ->knn('embedding', 2, 2, ['ef' => 2000, 'rescore' => true])
+        ->pluck('id')
+        ->all();
+
+    expect($similar)->toBe([1]);
+
+    $oversampled = $conn->table('it_vectors_rt')
+        ->knn('embedding', [0.1, 0.1, 0.1, 0.1], 2, ['oversampling' => 3.0])
+        ->pluck('id')
+        ->all();
+
+    expect($oversampled)->toContain(1);
 
     Schema::connection('manticore')->dropIfExists('it_vectors_rt');
 });
@@ -140,7 +164,6 @@ it('honors min_infix_len from the table-option macros', function () {
 
     DB::connection('manticore')->table('it_opts_rt')->insert(['id' => 1, 'body' => 'manticore']);
 
-    // Infix wildcards only resolve because min_infix_len was set on the table.
     $count = DB::connection('manticore')->table('it_opts_rt')->match('*anti*')->count();
 
     expect($count)->toBe(1);

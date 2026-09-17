@@ -2,8 +2,10 @@
 
 namespace ManticoreEloquent\Database\Query\Grammars;
 
+use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
+use InvalidArgumentException;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
 
 class ManticoreQueryGrammar extends MySqlGrammar
@@ -21,9 +23,11 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
-     * KNN vector search: knn(column, k, (v1, v2, …) [, ef]). The vector floats and the
-     * integer k/ef are inlined as numeric literals — Manticore rejects quoted (bound)
-     * values in the tuple, and the builder has already cast them, so this is injection-safe.
+     * KNN vector search: knn(column, k, (v1, v2, …)|doc_id [, {ef=…, rescore=…}]). The vector
+     * floats and the integer k are inlined as numeric literals — Manticore rejects quoted
+     * (bound) values in the tuple, and the builder has already cast them, so this is
+     * injection-safe. Option names are whitelisted and their values cast to the scalar type
+     * Manticore expects, for the same reason.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where
@@ -31,12 +35,33 @@ class ManticoreQueryGrammar extends MySqlGrammar
      */
     protected function whereKnn(Builder $query, $where): string
     {
-        $vector = implode(', ', array_map([$this, 'formatVectorValue'], $where['vector']));
+        if (is_array($where['vector'])) {
+            $column = $this->wrap($where['column']);
+            $target = '(' . implode(', ', array_map([$this, 'formatVectorValue'], $where['vector'])) . ')';
+        } else {
+            if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $where['column'])) {
+                throw new InvalidArgumentException("Invalid KNN column [{$where['column']}].");
+            }
 
-        $sql = 'knn(' . $this->wrap($where['column']) . ', ' . (int) $where['k'] . ', (' . $vector . ')';
+            $column = $where['column'];
+            $target = (string) (int) $where['vector'];
+        }
 
-        if (! empty($where['ef'])) {
-            $sql .= ', ' . (int) $where['ef'];
+        $sql = 'knn(' . $column . ', ' . (int) $where['k'] . ', ' . $target;
+
+        $options = array_filter(
+            $where['options'] ?? [],
+            static fn ($value) => $value !== null
+        );
+
+        if ($options !== []) {
+            $pairs = [];
+
+            foreach ($options as $key => $value) {
+                $pairs[] = $this->validateOptionKey($key) . '=' . $this->formatOptionValue($value);
+            }
+
+            $sql .= ', {' . implode(', ', $pairs) . '}';
         }
 
         return $sql . ')';
@@ -109,8 +134,12 @@ class ManticoreQueryGrammar extends MySqlGrammar
             return $value ? '1' : '0';
         }
 
-        if (is_int($value) || is_float($value)) {
+        if (is_int($value)) {
             return (string) $value;
+        }
+
+        if (is_float($value)) {
+            return var_export($value, true);
         }
 
         return "'" . str_replace("'", "\\'", (string) $value) . "'";
@@ -189,7 +218,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
         $pairs = [];
 
         foreach ($options as $key => $value) {
-            $pairs[] = $key . '=' . $this->formatOptionValue($value);
+            $pairs[] = $this->validateOptionKey($key) . '=' . $this->formatOptionValue($value);
         }
 
         return ' OPTION ' . implode(', ', $pairs);
@@ -213,20 +242,49 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
-     * Render an OPTION value: bools as 0/1, numbers as-is, arrays as (a,b) or (k=v),
-     * and everything else verbatim, since most Manticore options are bare keywords.
+     * An option name Manticore will accept is a bare identifier, so that — and not a list of
+     * known options — is what gets enforced. Any option the server grows keeps working.
+     *
+     * @param  string  $key
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    protected function validateOptionKey(string $key): string
+    {
+        if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $key)) {
+            throw new InvalidArgumentException("Invalid Manticore option name [{$key}].");
+        }
+
+        return $key;
+    }
+
+    /**
+     * Render an OPTION value: bools as 0/1, ints as-is, floats with their decimal point,
+     * arrays as (a,b) or (k=v), and strings verbatim — most Manticore options are bare
+     * keywords, so a string is left unquoted but must look like one.
      *
      * @param  mixed  $value
      * @return string
+     *
+     * @throws \InvalidArgumentException
      */
     protected function formatOptionValue(mixed $value): string
     {
+        if ($value instanceof Expression) {
+            return (string) $value->getValue($this);
+        }
+
         if (is_bool($value)) {
             return $value ? '1' : '0';
         }
 
-        if (is_int($value) || is_float($value)) {
+        if (is_int($value)) {
             return (string) $value;
+        }
+
+        if (is_float($value)) {
+            return var_export($value, true);
         }
 
         if (is_array($value)) {
@@ -235,15 +293,23 @@ class ManticoreQueryGrammar extends MySqlGrammar
             if ($isAssoc) {
                 $pairs = [];
                 foreach ($value as $k => $v) {
-                    $pairs[] = "{$k}={$v}";
+                    $pairs[] = $this->validateOptionKey((string) $k) . '=' . $this->formatOptionValue($v);
                 }
 
                 return '(' . implode(',', $pairs) . ')';
             }
 
-            return '(' . implode(',', $value) . ')';
+            return '(' . implode(',', array_map([$this, 'formatOptionValue'], $value)) . ')';
         }
 
-        return (string) $value;
+        $value = (string) $value;
+
+        if (preg_match('/^[A-Za-z0-9_.\-]+$/', $value) || preg_match("/^'[^'\\\\]*'$/", $value)) {
+            return $value;
+        }
+
+        throw new InvalidArgumentException(
+            "Invalid Manticore option value [{$value}]. Wrap it in DB::raw() to pass it through."
+        );
     }
 }

@@ -110,6 +110,16 @@ Article::manticore()
 Article::manticore()->replace(['id' => 1, 'title' => 'New', 'body' => '…']);
 ```
 
+Option names and values are never bound — Manticore's `OPTION` and `knn()` blocks take bare
+keywords, not quoted strings. There is no list of allowed options (the server keeps adding
+them), so instead both sides are checked for shape: a name must be a plain identifier, and a
+value must be a number, a bool, or a bare word. Anything richer is explicit:
+
+```php
+->option('ranker', DB::raw("expr('sum(lcs*user_weight)')"))  // passed through verbatim
+->option('ranker', $request->input('ranker'))                // throws unless it's a bare word
+```
+
 `max_matches` is raised automatically when you page beyond Manticore's default cap of
 1000 rows, so deep `paginate()`/`offset()` just works.
 
@@ -123,6 +133,41 @@ Article::manticore()
     ->knn('embedding', $queryVector, k: 10)   // optional ef: ->knn(..., ef: 2000)
     ->selectRaw('*, knn_dist() as distance')
     ->get();
+
+// "more like this document": pass a document id instead of a vector. Manticore returns
+// the neighbours, never the source document itself.
+Article::manticore()->knn('embedding', $article->id, k: 10)->get();
+
+// The 4th argument is the whole option block — knn(…, {ef=2000, rescore=1}). Any option
+// Manticore accepts there goes through; float options need a float (3.0, not 3).
+Article::manticore()
+    ->knn('embedding', $queryVector, k: 10, ef: ['ef' => 2000, 'rescore' => true])
+    ->get();
+```
+
+Writing vectors needs the `VectorCast`, because Manticore only accepts a vector as a bare
+tuple literal — `(0.1, 0.2)` — which no bound parameter can express:
+
+```php
+use ManticoreEloquent\Eloquent\Casts\VectorCast;
+
+class Article extends ManticoreModel
+{
+    protected $casts = ['embedding' => VectorCast::class];
+}
+
+Article::create(['embedding' => [0.1, 0.2, 0.3]]);  // → values ((0.1, 0.2, 0.3))
+Article::query()->where('id', 1)->first()->embedding; // → [0.1, 0.2, 0.3]
+```
+
+Two things to know about vectors once they are stored: a `cosine` column normalizes them,
+so the values you read back are the unit vector, not what you wrote (`L2` round-trips
+exactly); and Manticore refuses `UPDATE` on a KNN-indexed column, so changing a vector
+means rewriting the row with `replace()`:
+
+```php
+DB::connection('manticore')->table('articles')
+    ->replace([(new Article(['id' => 1, 'embedding' => [0.4, 0.5, 0.6]]))->getAttributes()]);
 ```
 
 #### Highlighting
@@ -184,14 +229,17 @@ accept `->indexed()`/`->stored()`, and tables accept `minInfixLen()`, `morpholog
 the generic `manticoreOptions([...])`.
 
 `floatVector()` takes `dims`, `knnType` (default `hnsw`) and `similarity` (default `L2`,
-e.g. `cosine`); any further HNSW tuning goes in a trailing array, rendered as `key='value'`:
+e.g. `cosine`); any further column option goes in a trailing array, rendered as `key='value'`
+— `hnsw_m`, `hnsw_ef_construction`, `quantization` (`8bit`, `1bit`, `1bitsimple`), and
+anything else Manticore accepts there:
 
 ```php
 $table->floatVector('content_vector', dims: 768, similarity: 'cosine', knnOptions: [
     'hnsw_m' => 16,
     'hnsw_ef_construction' => 200,
+    'quantization' => '8bit',
 ]);
-// → `content_vector` float_vector knn_type='hnsw' knn_dims='768' hnsw_similarity='cosine' hnsw_m='16' hnsw_ef_construction='200'
+// → `content_vector` float_vector knn_type='hnsw' knn_dims='768' hnsw_similarity='cosine' hnsw_m='16' hnsw_ef_construction='200' quantization='8bit'
 ```
 
 ## Known limits & gotchas
@@ -203,6 +251,8 @@ $table->floatVector('content_vector', dims: 768, similarity: 'cosine', knnOption
 - **`id` is special.** Manticore assigns the document id; migrations skip any `id` column.
 - **JOINs are limited.** Cross-index JOINs in Manticore are restricted; prefer denormalized
   indexes. Eager-loading relations across a relational connection still works as usual.
+- **Qualified columns break.** Manticore rejects `` `table`.`column` ``, so `Model::find()`
+  (which qualifies the key) fails — use `->where('id', $id)->first()`.
 - **Prepared statements.** The driver forces emulated prepares (Manticore's server-side
   prepare support is limited), so bindings — including `MATCH(?)` — are interpolated by PDO.
 
