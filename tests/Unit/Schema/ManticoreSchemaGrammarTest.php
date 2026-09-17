@@ -120,6 +120,20 @@ it('compiles a float_vector column with knn options', function () {
     expect($sql)->toContain("`embedding` float_vector knn_type='hnsw' knn_dims='384' hnsw_similarity='L2'");
 });
 
+it('appends extra hnsw tuning options to a float_vector column', function () {
+    $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->addColumn('floatVector', 'content_vector', [
+            'dims'       => 768,
+            'knnType'    => 'hnsw',
+            'similarity' => 'cosine',
+            'knnOptions' => ['hnsw_m' => 16, 'hnsw_ef_construction' => 200],
+        ]);
+    })[0];
+
+    expect($sql)->toContain("hnsw_similarity='cosine' hnsw_m='16' hnsw_ef_construction='200'");
+});
+
 it('compiles multi-value attributes', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();

@@ -183,6 +183,17 @@ Type mapping: `string/char → string`, `text → text`, `integer/tinyInteger/sm
 accept `->indexed()`/`->stored()`, and tables accept `minInfixLen()`, `morphology()` and
 the generic `manticoreOptions([...])`.
 
+`floatVector()` takes `dims`, `knnType` (default `hnsw`) and `similarity` (default `L2`,
+e.g. `cosine`); any further HNSW tuning goes in a trailing array, rendered as `key='value'`:
+
+```php
+$table->floatVector('content_vector', dims: 768, similarity: 'cosine', knnOptions: [
+    'hnsw_m' => 16,
+    'hnsw_ef_construction' => 200,
+]);
+// → `content_vector` float_vector knn_type='hnsw' knn_dims='768' hnsw_similarity='cosine' hnsw_m='16' hnsw_ef_construction='200'
+```
+
 ## Known limits & gotchas
 
 - **No transactions / row locks.** Manticore has none; `lock()` / `->lockForUpdate()` are
