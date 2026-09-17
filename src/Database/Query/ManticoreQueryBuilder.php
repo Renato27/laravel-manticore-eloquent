@@ -71,23 +71,26 @@ class ManticoreQueryBuilder extends Builder
      * Manticore needs the query vector as bare float literals inside the tuple — PDO would
      * quote bound parameters as strings, which the parser rejects — so the values are cast
      * to float and inlined (injection-safe by construction).
+     * Pass a document id instead of a vector to find documents similar to that one.
      * Pair it with selectRaw('knn_dist() as distance') to read the similarity score.
      *
      * @param  string  $column
-     * @param  array<int, int|float>  $vector
+     * @param  array<int, int|float>|int  $vector
      * @param  int  $k
-     * @param  int|null  $ef
+     * @param  int|array<string, mixed>|null  $ef
      * @param  string  $boolean
      * @return static
      */
-    public function knn(string $column, array $vector, int $k = 10, ?int $ef = null, string $boolean = 'and'): static
+    public function knn(string $column, array|int $vector, int $k = 10, int|array|null $ef = null, string $boolean = 'and'): static
     {
         $this->wheres[] = [
             'type'    => 'Knn',
             'column'  => $column,
-            'vector'  => array_map(static fn ($value) => (float) $value, array_values($vector)),
+            'vector'  => is_array($vector)
+                ? array_map(static fn ($value) => (float) $value, array_values($vector))
+                : $vector,
             'k'       => $k,
-            'ef'      => $ef,
+            'options' => is_int($ef) ? ['ef' => $ef] : (array) $ef,
             'boolean' => $boolean,
         ];
 

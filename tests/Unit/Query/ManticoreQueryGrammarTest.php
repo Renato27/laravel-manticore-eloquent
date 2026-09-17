@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Database\Query\Expression;
+
 use Illuminate\Database\Connection;
 use ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
@@ -80,7 +82,15 @@ it('casts integer vector components to float literals', function () {
 it('adds the ef argument to knn() when provided', function () {
     $sql = manticoreQuery('docs')->knn('embedding', [0.1, 0.2], 10, 2000)->toSql();
 
-    expect($sql)->toContain('knn(`embedding`, 10, (0.1, 0.2), 2000)');
+    expect($sql)->toContain('knn(`embedding`, 10, (0.1, 0.2), {ef=2000})');
+});
+
+it('renders any knn option the caller passes, without a list of known names', function () {
+    $sql = manticoreQuery('docs')->knn('embedding', [0.1], 10, [
+        'ef' => 2000, 'rescore' => true, 'oversampling' => 3.0, 'some_future_option' => 'auto',
+    ])->toSql();
+
+    expect($sql)->toContain('knn(`embedding`, 10, (0.1), {ef=2000, rescore=1, oversampling=3.0, some_future_option=auto})');
 });
 
 it('combines knn() with regular filters, binding only the regular ones', function () {
@@ -165,3 +175,55 @@ it('does not append OPTION or FACET to a union query', function () {
 it('treats an empty replace() as a no-op', function () {
     expect(manticoreQuery()->replace([]))->toBeTrue();
 });
+
+it('compiles a knn() predicate against a document id', function () {
+    $q = manticoreQuery('docs')->knn('embedding', 123, 5);
+
+    expect($q->toSql())->toContain('where knn(embedding, 5, 123)');
+    expect($q->getBindings())->toBe([]);
+});
+
+it('adds the ef argument to a document-id knn()', function () {
+    expect(manticoreQuery('docs')->knn('embedding', 123, 5, 2000)->toSql())
+        ->toContain('knn(embedding, 5, 123, {ef=2000})');
+});
+
+it('rejects a non-identifier column in the document-id form', function () {
+    manticoreQuery('docs')->knn('embedding); drop table docs; --', 1)->toSql();
+})->throws(InvalidArgumentException::class);
+
+it('rejects a knn option value carrying a SQL fragment', function ($value) {
+    manticoreQuery('docs')->knn('embedding', 1, 10, ['ef' => $value])->toSql();
+})->throws(InvalidArgumentException::class)->with([
+    '2000}) OR 1=1 -- ',
+    "1', drop table docs, '",
+    "}) union select * from docs where match('')",
+    [['2000', 'OR 1=1']],
+]);
+
+it('rejects a knn option name carrying a SQL fragment', function () {
+    manticoreQuery('docs')->knn('embedding', 1, 10, ['ef=1, rescore' => 1])->toSql();
+})->throws(InvalidArgumentException::class);
+
+it('lets DB::raw() through as the deliberate escape hatch', function () {
+    expect(manticoreQuery('docs')->knn('embedding', 1, 10, ['ef' => new Expression('2000')])->toSql())
+        ->toContain('knn(embedding, 10, 1, {ef=2000})');
+});
+
+it('treats a null knn option as unset rather than zero', function () {
+    $sql = manticoreQuery('docs')->knn('embedding', [0.1], 10, ['ef' => null, 'rescore' => true])->toSql();
+
+    expect($sql)->toContain('knn(`embedding`, 10, (0.1), {rescore=1})');
+});
+
+it('passes a self-contained quoted literal through, the way manticore wants idf and comment', function ($value) {
+    expect(manticoreQuery('docs')->option('idf', $value)->toSql())->toContain("OPTION idf={$value}");
+})->with(["'plain,tfidf_unnormalized'", "'lib.so,name,opt=1'", "''"]);
+
+it('rejects a quoted option value that closes its own literal', function ($value) {
+    manticoreQuery('docs')->option('comment', $value)->toSql();
+})->throws(InvalidArgumentException::class)->with([
+    "'a', max_matches=1, comment='b'",
+    "a' OR 1=1 -- ",
+    "'a\\'",
+]);
