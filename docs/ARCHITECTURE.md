@@ -55,6 +55,7 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 | Tuning | — | `OPTION k=v, …` clause (with automatic `max_matches` on deep paging) |
 | Facets | — | `FACET field` clause |
 | Full-doc write | optional `REPLACE` | `REPLACE INTO` exposed via `replace()` |
+| Partial write | — | `REPLACE INTO … SET … WHERE id` via `replaceWhereId()` |
 | Locks | `FOR UPDATE` | none (no-op) |
 | Schema | rich `CREATE TABLE` | simple `CREATE TABLE`; implicit `id`; its own types; `text indexed/stored`; table options (`min_infix_len`, `morphology`) |
 | Introspection | information_schema | `SHOW TABLES` / `DESC` |
@@ -82,9 +83,8 @@ These are deliberately out of scope for now — not blocked by the design, just 
 1. **Suggest / autocomplete** (`CALL SUGGEST`) and **percolate queries** as helpers. These
    aren't `SELECT`s, so they don't ride the Builder → Grammar → SELECT path the rest of the
    library inherits for free; they'd need their own statement-running helpers.
-2. **Optional sync** database → Manticore (Scout `searchable()` style), for those who keep
-   the relational store as the source of truth. This is effectively a second integration
-   surface (a Scout engine), better suited to its own package.
+2. **Optional sync** database → Manticore. Shipped as a separate package:
+   `renatomaldonado/laravel-manticore-sync`.
 3. **`ALTER … RENAME`** of a column. This one *is* an engine limitation: Manticore's `ALTER`
    only adds/drops columns, so a rename has no compilable form — use `DB::statement` (see
    *Known limitations*).

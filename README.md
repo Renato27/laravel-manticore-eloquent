@@ -5,6 +5,8 @@ first-class Laravel database connection over the **MySQL protocol** (port `9306`
 *entire* Eloquent / Query Builder API works unchanged — `where`, `find`, `create`,
 `update`, `delete`, `paginate`, `chunk`, scopes, casts, relations, migrations — plus
 Manticore helpers (`match`, `knn`, `highlight`, `option`, `maxMatches`, `facet`, `replace`).
+To keep a relational database in sync with Manticore automatically, see the companion
+package `renatomaldonado/laravel-manticore-sync`.
 
 > This is a separate, ground-up library. If you use the older
 > `renatomaldonado/manticore-laravel-search` (HTTP/JSON fluent builder + consolidation),
@@ -122,6 +124,26 @@ value must be a number, a bool, or a bare word. Anything richer is explicit:
 
 `max_matches` is raised automatically when you page beyond Manticore's default cap of
 1000 rows, so deep `paginate()`/`offset()` just works.
+
+#### Partial replace
+
+`replaceWhereId()` rewrites only the fields you pass and keeps the rest of the document,
+including full-text fields that `update()` cannot change:
+
+```php
+DB::connection('manticore')->table('articles')->replaceWhereId(1, ['tag' => 'beta']);
+// replace into `articles` set `tag` = ? where `id` = ?
+```
+
+Constraints that come from Manticore, not from this driver:
+
+- It needs **Manticore Buddy**. It ships inside the `manticore` package from 25.0.0 on;
+  before that it was the separate `manticore-extra` package.
+- It filters by `id` only, so it writes one document per call.
+- Every field of the table must be `stored` (the default).
+- **On an id that does not exist it creates a document holding only the fields you
+  passed**, with defaults everywhere else, and it does not report that. Check that the
+  document exists first if that matters.
 
 #### KNN / vector search
 

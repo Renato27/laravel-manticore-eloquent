@@ -192,6 +192,27 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
+     * Partial REPLACE: REPLACE INTO ... SET ... WHERE id = ?. Expression values (e.g. a
+     * vector tuple) are inlined; every other value is a binding, and the id binding goes last.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $values
+     * @return string
+     */
+    public function compileReplaceSet(Builder $query, array $values): string
+    {
+        $assignments = [];
+
+        foreach ($values as $column => $value) {
+            $assignments[] = $this->wrap($column).' = '.$this->parameter($value);
+        }
+
+        return 'replace into '.$this->wrapTable($query->from)
+            .' set '.implode(', ', $assignments)
+            .' where '.$this->wrap('id').' = ?';
+    }
+
+    /**
      * Build the trailing OPTION clause. Manticore caps results at max_matches (1000 by
      * default), so when someone pages past that we raise the cap unless they set it.
      *

@@ -5,6 +5,7 @@ namespace ManticoreEloquent\Database\Query;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Support\Arr;
+use InvalidArgumentException;
 
 class ManticoreQueryBuilder extends Builder
 {
@@ -163,6 +164,39 @@ class ManticoreQueryBuilder extends Builder
         return $this->connection->insert(
             $this->grammar->compileReplace($this, $values),
             $this->cleanBindings(Arr::flatten($values, 1))
+        );
+    }
+
+    /**
+     * Partial REPLACE of one document: only the given fields are rewritten, the rest of
+     * the document is kept. Unlike UPDATE it can change full-text fields. Needs Manticore
+     * Buddy and every field stored; it filters by id only. On an id that does not exist
+     * it creates a document holding just the given fields.
+     *
+     * @param  int  $id
+     * @param  array<string, mixed>  $values
+     * @return bool
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function replaceWhereId(int $id, array $values): bool
+    {
+        if ($id < 1) {
+            throw new InvalidArgumentException("Manticore document ids are positive integers, got {$id}.");
+        }
+
+        if (empty($values)) {
+            return true;
+        }
+
+        $this->applyBeforeQueryCallbacks();
+
+        $bindings = $this->cleanBindings(array_values($values));
+        $bindings[] = $id;
+
+        return $this->connection->insert(
+            $this->grammar->compileReplaceSet($this, $values),
+            $bindings
         );
     }
 }

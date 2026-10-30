@@ -227,3 +227,54 @@ it('rejects a quoted option value that closes its own literal', function ($value
     "a' OR 1=1 -- ",
     "'a\\'",
 ]);
+
+it('compiles a partial REPLACE ... SET ... WHERE id', function () {
+    $query = manticoreQuery('t1_docs');
+
+    $sql = $query->getGrammar()->compileReplaceSet($query, ['title' => 'Hello', 'price' => 10]);
+
+    expect($sql)->toBe('replace into `t1_docs` set `title` = ?, `price` = ? where `id` = ?');
+});
+
+it('inlines Expression values in a partial REPLACE instead of binding them', function () {
+    $query = manticoreQuery('t1_docs');
+
+    $sql = $query->getGrammar()->compileReplaceSet($query, [
+        'title'     => 'Hello',
+        'embedding' => new Expression('(0.1, 0.2)'),
+    ]);
+
+    expect($sql)->toBe('replace into `t1_docs` set `title` = ?, `embedding` = (0.1, 0.2) where `id` = ?');
+});
+
+it('binds the values and then the id for a partial REPLACE', function () {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with(
+            'replace into `t1_docs` set `title` = ?, `embedding` = (0.1, 0.2), `price` = ? where `id` = ?',
+            ['Hello', 10, 42]
+        )
+        ->andReturn(true);
+
+    $query = (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('t1_docs');
+
+    expect($query->replaceWhereId(42, [
+        'title'     => 'Hello',
+        'embedding' => new Expression('(0.1, 0.2)'),
+        'price'     => 10,
+    ]))->toBeTrue();
+});
+
+it('treats an empty replaceWhereId() as a no-op', function () {
+    expect(manticoreQuery()->replaceWhereId(1, []))->toBeTrue();
+});
+
+it('rejects a non-positive id in replaceWhereId()', function (int $id) {
+    manticoreQuery()->replaceWhereId($id, ['title' => 'x']);
+})->with([0, -5])->throws(InvalidArgumentException::class);

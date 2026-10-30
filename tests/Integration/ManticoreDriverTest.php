@@ -202,3 +202,33 @@ it('creates an index using the Manticore Blueprint macros', function () {
 
     Schema::connection('manticore')->dropIfExists('it_macros_rt');
 });
+
+it('partially replaces only the given fields, including full-text ones', function () {
+    $schema = Schema::connection('manticore');
+    $schema->dropIfExists('t1_docs');
+    $schema->create('t1_docs', function (Blueprint $table) {
+        $table->text('title');
+        $table->text('tag');
+        $table->integer('price');
+    });
+
+    try {
+        $docs = DB::connection('manticore')->table('t1_docs');
+        $docs->insert(['id' => 1, 'title' => 'first title', 'tag' => 'alpha', 'price' => 10]);
+
+        expect($docs->replaceWhereId(1, ['tag' => 'beta']))->toBeTrue();
+
+        $doc = DB::connection('manticore')->table('t1_docs')->where('id', 1)->first();
+        expect($doc->title)->toBe('first title');
+        expect($doc->price)->toBe(10);
+        expect($doc->tag)->toBe('beta');
+
+        DB::connection('manticore')->table('t1_docs')->replaceWhereId(1, ['title' => 'second heading']);
+
+        expect(DB::connection('manticore')->table('t1_docs')->match('heading')->count())->toBe(1);
+        expect(DB::connection('manticore')->table('t1_docs')->match('first')->count())->toBe(0);
+        expect(DB::connection('manticore')->table('t1_docs')->where('id', 1)->value('tag'))->toBe('beta');
+    } finally {
+        $schema->dropIfExists('t1_docs');
+    }
+});
