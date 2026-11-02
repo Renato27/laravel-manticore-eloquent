@@ -91,9 +91,11 @@ it('truncates a table', function () {
     expect(FeaturePost::count())->toBe(0);
 });
 
-it('limit: increment() and decrement() fail with an error', function () {
-    expect(fn () => FeaturePost::where('id', 1)->increment('views'))->toThrow(QueryException::class);
-    expect(fn () => FeaturePost::where('id', 1)->decrement('views'))->toThrow(QueryException::class);
+it('refuses increment() and decrement(), which could not be atomic', function () {
+    expect(fn () => FeaturePost::where('id', 1)->increment('views'))->toThrow(LogicException::class, 'increment');
+    expect(fn () => FeaturePost::find(1)->decrement('views'))->toThrow(LogicException::class, 'decrement');
+    expect(fn () => featureTable()->incrementEach(['views' => 1]))->toThrow(LogicException::class, 'increment');
+    expect(fn () => featureTable()->decrementEach(['views' => 1]))->toThrow(LogicException::class, 'decrement');
 });
 
 it('deletes every document without a filter', function () {
@@ -150,3 +152,39 @@ it('updates every match in updateOrInsert(), which cannot stop at one', function
 
     expect(FeaturePost::where('views', 50)->pluck('id')->sort()->values()->all())->toBe([2, 3]);
 });
+
+it('compiles distinct() to a group by', function () {
+    expect(featureTable()->distinct()->orderBy('slug')->pluck('slug')->all())->toBe(['a', 'b'])
+        ->and(featureTable()->select('slug', 'views')->distinct()->count('slug'))->toBe(2)
+        ->and(featureTable()->select('slug')->distinct()->orderBy('slug')->get()->pluck('slug')->all())->toBe(['a', 'b']);
+});
+
+it('runs upsert() as a REPLACE when every column is written', function () {
+    $rows = [
+        ['id' => 1, 'title' => 'changed', 'views' => 100, 'slug' => 'z'],
+        ['id' => 9, 'title' => 'new', 'views' => 900, 'slug' => 'y'],
+    ];
+
+    expect(featureTable()->upsert($rows, 'id'))->toBe(2)
+        ->and(FeaturePost::find(1)->views)->toBe(100)
+        ->and(FeaturePost::find(9)->views)->toBe(900)
+        ->and(FeaturePost::count())->toBe(4);
+
+    expect(FeaturePost::upsert(['id' => 2, 'title' => 'model', 'views' => 200, 'slug' => 'w'], ['id'], ['title', 'views', 'slug']))->toBe(1)
+        ->and(FeaturePost::find(2)->views)->toBe(200);
+});
+
+it('refuses an upsert() a REPLACE could not honor', function (array $unique, ?array $update) {
+    featureTable()->upsert(['id' => 1, 'title' => 'x', 'views' => 2, 'slug' => 'c'], $unique, $update);
+})->with([
+    'another unique key'  => [['slug'], null],
+    'a partial update'    => [['id'], ['views']],
+])->throws(LogicException::class, 'upsert()');
+
+it('does nothing on an empty upsert()', function () {
+    expect(featureTable()->upsert([], 'id'))->toBe(0);
+});
+
+it('fails loudly on insertOrIgnore(), which the server does not have', function () {
+    featureTable()->insertOrIgnore(['id' => 1, 'title' => 'x', 'views' => 2, 'slug' => 'c']);
+})->throws(QueryException::class);

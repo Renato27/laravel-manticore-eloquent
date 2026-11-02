@@ -18,8 +18,15 @@ Article::query()
     ->get();
 ```
 
-`get()` returns the matches. Facets come back as an extra result set, so reading them usually
-means going through the raw statement.
+`get()` returns the matches. To read the facets as well, use `getWithFacets()`:
+
+```php
+$result = Article::query()->match('cloud')->facet('category')->facet('year', 'published')->getWithFacets();
+
+$result['rows'];                  // the matches, as models
+$result['facets']['category'];    // a collection of rows with `category` and `count(*)`
+$result['facets']['published'];   // named by the alias
+```
 
 `match()` takes Manticore's search syntax, such as `alpha -beta` or `@title cloud`, so a stray
 `(` in it is an error. For text typed by a user, use `matchText()`, which treats every character

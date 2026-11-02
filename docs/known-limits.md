@@ -11,8 +11,14 @@
   no-ops, and DB transactions should not be relied on.
 - **`update()` and `delete()` take no `limit()` or `orderBy()`,** which fail with an error. For the
   same reason, `updateOrInsert()` updates every document that matches, not just the first.
-- **`increment()` and `decrement()` fail with an error.** Manticore's `UPDATE` takes values, not
-  expressions like `views + 1`. Read the value and write the new one, which is not atomic.
+- **`increment()` and `decrement()` throw a `LogicException`.** Manticore's `UPDATE` takes values,
+  not expressions like `views + 1`. Read the value and write the new one, which is not atomic.
+- **`upsert()` is a `REPLACE`.** It only runs keyed by `id` and writing every column, and throws a
+  `LogicException` otherwise, including on a model with timestamps, where a `REPLACE` would reset
+  `created_at`. `insertOrIgnore()` fails with an error.
+- **`distinct()` becomes a `GROUP BY`** of the selected columns.
+- **Other SQL the server does not have fails with its error:** `union`, `like`, `whereColumn`,
+  `whereDate` and its relatives.
 - **`update()` vs `replace()`.** Manticore `UPDATE` only changes attribute (non-text)
   columns in place. To rewrite a full document (including `text` fields) use
   [`replace()`](writing-documents.md).

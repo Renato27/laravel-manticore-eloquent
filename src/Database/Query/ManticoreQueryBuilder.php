@@ -9,6 +9,7 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
+use LogicException;
 use RuntimeException;
 
 class ManticoreQueryBuilder extends Builder
@@ -349,6 +350,91 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
+     * Insert documents or rewrite the ones that exist, as a REPLACE. Manticore's only unique key
+     * is the id, and REPLACE rewrites the whole document, so it cannot honor anything less.
+     *
+     * @param  array  $values
+     * @param  array|string  $uniqueBy
+     * @param  array|null  $update
+     * @return int
+     *
+     * @throws \LogicException
+     */
+    public function upsert(array $values, $uniqueBy, $update = null)
+    {
+        if (empty($values)) {
+            return 0;
+        }
+
+        $rows = is_array(reset($values)) ? $values : [$values];
+        $columns = array_keys(reset($rows));
+
+        if ((array) $uniqueBy !== ['id'] || array_diff($columns, $update ?? $columns, ['id']) !== []) {
+            throw new LogicException(
+                'Manticore can only run upsert() as a REPLACE, keyed by id and writing every column. '
+                . 'To change some columns, use update(), or replaceWhereId() for one document.'
+            );
+        }
+
+        $this->replace($rows);
+
+        return count($rows);
+    }
+
+    /**
+     * Manticore's UPDATE takes values, not expressions, so this could only be a read and a write,
+     * which would lose increments made in between.
+     *
+     * @param  array  $columns
+     * @param  array  $extra
+     * @return int
+     *
+     * @throws \LogicException
+     */
+    public function incrementEach(array $columns, array $extra = [])
+    {
+        throw new LogicException('Manticore has no atomic increment(): its UPDATE takes values, not expressions. Read the value and write the new one with update().');
+    }
+
+    /**
+     * See incrementEach().
+     *
+     * @param  array  $columns
+     * @param  array  $extra
+     * @return int
+     *
+     * @throws \LogicException
+     */
+    public function decrementEach(array $columns, array $extra = [])
+    {
+        throw new LogicException('Manticore has no atomic decrement(): its UPDATE takes values, not expressions. Read the value and write the new one with update().');
+    }
+
+    /**
+     * Run the select and read its facets, which come back as extra result sets. Each facet is
+     * named by its alias or its field, and holds the field and a count(*).
+     *
+     * @param  array  $columns
+     * @return array{rows: \Illuminate\Support\Collection, facets: array<string, \Illuminate\Support\Collection>}
+     */
+    public function getWithFacets(array $columns = ['*']): array
+    {
+        $query = clone $this;
+        $query->columns ??= $columns;
+
+        $sets = $this->connection->selectResultSets($query->toSql(), $query->getBindings());
+
+        $rows = collect($this->processor->processSelect($this, array_shift($sets)));
+
+        $names = array_map(
+            static fn (string $facet) => last(preg_split('/\s+as\s+/i', $facet)),
+            $this->options['__facets'] ?? []
+        );
+
+        return ['rows' => $rows, 'facets' => array_combine($names, array_map('collect', $sets))];
+    }
+
+    /**
      * Set a single Manticore query OPTION.
      *
      * @param  string  $key
@@ -431,8 +517,7 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Add a FACET clause. Facets come back as an extra result set, so reading them
-     * usually means going through the raw statement.
+     * Add a FACET clause. get() ignores the result, and getWithFacets() returns it.
      *
      * @param  string  $field
      * @param  string|null  $alias

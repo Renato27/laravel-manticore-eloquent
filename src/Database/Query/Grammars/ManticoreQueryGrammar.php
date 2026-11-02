@@ -201,8 +201,8 @@ class ManticoreQueryGrammar extends MySqlGrammar
             return parent::compileSelect($query);
         }
 
-        if ($query->limit === null && $query->aggregate === null) {
-            $query = (clone $query)->limit(self::UNLIMITED);
+        if ($query->aggregate === null) {
+            $query = $this->withManticoreDefaults($query);
         }
 
         $sql = parent::compileSelect($query);
@@ -211,6 +211,29 @@ class ManticoreQueryGrammar extends MySqlGrammar
         $sql .= $this->compileFacetClause($query);
 
         return $sql;
+    }
+
+    /**
+     * What a row-returning select needs on Manticore: a limit that reaches every row, and a GROUP
+     * BY in place of the DISTINCT it does not have.
+     *
+     * @param  \ManticoreEloquent\Database\Query\ManticoreQueryBuilder  $query
+     * @return \ManticoreEloquent\Database\Query\ManticoreQueryBuilder
+     */
+    protected function withManticoreDefaults(ManticoreQueryBuilder $query): ManticoreQueryBuilder
+    {
+        $query = clone $query;
+
+        if ($query->limit === null) {
+            $query->limit(self::UNLIMITED);
+        }
+
+        if ($query->distinct === true && ! in_array($query->columns, [null, ['*']], true)) {
+            $query->distinct = false;
+            $query->groups = array_merge($query->groups ?? [], $query->columns);
+        }
+
+        return $query;
     }
 
     /**

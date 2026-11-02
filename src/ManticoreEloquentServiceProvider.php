@@ -3,6 +3,7 @@
 namespace ManticoreEloquent;
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\ServiceProvider;
 use ManticoreEloquent\Database\ManticoreConnection;
@@ -23,7 +24,7 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
     }
 
     /**
-     * Publish the config and wire up the connection and Blueprint macros.
+     * Publish the config and wire up the connection and the macros.
      *
      * @return void
      */
@@ -35,6 +36,22 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
 
         $this->registerManticoreDatabaseConnection();
         $this->registerBlueprintMacros();
+        $this->registerEloquentMacros();
+    }
+
+    /**
+     * getWithFacets() on Eloquent, since the query builder knows nothing of scopes and models.
+     *
+     * @return void
+     */
+    protected function registerEloquentMacros(): void
+    {
+        EloquentBuilder::macro('getWithFacets', function (array $columns = ['*']) {
+            $result = $this->toBase()->getWithFacets($columns);
+            $result['rows'] = $this->hydrate($result['rows']->all());
+
+            return $result;
+        });
     }
 
     /**

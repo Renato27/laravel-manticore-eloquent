@@ -787,3 +787,29 @@ it('writes a json path the way Manticore reads it', function () {
 it('refuses a json path with anything but names and indexes, since it goes out unquoted', function (string $path) {
     expect(fn () => manticoreQuery('docs')->where($path, 1)->toSql())->toThrow(InvalidArgumentException::class, 'Invalid JSON path');
 })->with(['meta->a` = 1 or `b', 'meta->a b', "meta->'a'", 'me ta->a', 'meta->a)--']);
+
+it('compiles distinct() over named columns to a group by', function () {
+    expect(manticoreQuery('docs')->select('a', 'b')->distinct()->toSql())
+        ->toBe(unlimited('select `a`, `b` from `docs` group by `a`, `b`'))
+        ->and(manticoreQuery('docs')->select('a')->groupBy('c')->distinct()->limit(1)->toSql())
+        ->toBe('select `a` from `docs` group by `c`, `a` limit 1');
+});
+
+it('leaves a distinct() it cannot name for the server to reject', function () {
+    expect(manticoreQuery('docs')->distinct()->toSql())->toBe(unlimited('select distinct * from `docs`'));
+});
+
+it('compiles upsert() to a REPLACE', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('insert')->once()
+        ->with('replace into `docs` (`id`, `v`) values (?, ?), (?, ?)', [1, 2, 3, 4])->andReturn(true);
+
+    $query = (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs');
+
+    expect($query->upsert([['id' => 1, 'v' => 2], ['id' => 3, 'v' => 4]], 'id', ['v']))->toBe(2);
+});
+
+it('refuses increments before reaching the server', function (string $method) {
+    expect(fn () => manticoreQuery('docs')->{$method}('views'))->toThrow(LogicException::class, $method);
+})->with(['increment', 'decrement']);
