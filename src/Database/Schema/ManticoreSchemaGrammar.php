@@ -121,13 +121,16 @@ class ManticoreSchemaGrammar extends Grammar
      */
     public function compileChange(Blueprint $blueprint, Fluent $command, $connection = null)
     {
-        $column = $command->column;
+        // Laravel 10 runs one command for all the changed columns, and later versions one for each.
+        $columns = isset($command->column) ? [$command->column] : $blueprint->getChangedColumns();
 
-        if ($column->type !== 'bigInteger') {
-            throw new LogicException("Manticore can only change a column to bigInteger, so it cannot change [{$column->name}] to [{$column->type}].");
-        }
+        return array_map(function ($column) use ($blueprint) {
+            if ($column->type !== 'bigInteger') {
+                throw new LogicException("Manticore can only change a column to bigInteger, so it cannot change [{$column->name}] to [{$column->type}].");
+            }
 
-        return ['alter table '.$this->wrapTable($blueprint).' modify column '.$this->wrap($column).' bigint'];
+            return 'alter table '.$this->wrapTable($blueprint).' modify column '.$this->wrap($column).' bigint';
+        }, $columns);
     }
 
     /**
