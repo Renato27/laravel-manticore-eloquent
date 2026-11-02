@@ -115,6 +115,9 @@ Tests are split into three suites:
   KNN/`HIGHLIGHT()`, table options, schema introspection (`hasTable`/`getColumnListing`) and
   UUID document ids.
 
+The README's tests badge comes from that same full run: see
+[CONTRIBUTING.md](../CONTRIBUTING.md#the-tests-badge).
+
 ### Coverage
 
 Coverage needs a driver (PCOV recommended, or Xdebug). With the integration suite running

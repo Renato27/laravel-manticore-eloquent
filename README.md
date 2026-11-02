@@ -2,7 +2,8 @@
 
 [![Latest version][badge-version]][packagist]
 [![Total downloads][badge-downloads]][packagist-stats]
-[![Tests][badge-tests]][workflow]
+[![Tests passing][badge-tests]][workflow]
+[![CI][badge-ci]][workflow]
 [![PHP version][badge-php]][packagist]
 [![Laravel version][badge-laravel]][packagist]
 [![License][badge-license]](LICENSE)
@@ -134,7 +135,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the tests.
 [workflow]: https://github.com/Renato27/laravel-manticore-eloquent/actions/workflows/tests.yml
 [badge-version]: https://img.shields.io/packagist/v/renatomaldonado/laravel-manticore-eloquent
 [badge-downloads]: https://img.shields.io/packagist/dt/renatomaldonado/laravel-manticore-eloquent
-[badge-tests]: https://img.shields.io/github/actions/workflow/status/Renato27/laravel-manticore-eloquent/tests.yml?branch=master&label=tests
+[badge-tests]: https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FRenato27%2Flaravel-manticore-eloquent%2Fbadges%2Ftests.json
+[badge-ci]: https://img.shields.io/github/actions/workflow/status/Renato27/laravel-manticore-eloquent/tests.yml?branch=master&label=CI
 [badge-php]: https://img.shields.io/packagist/dependency-v/renatomaldonado/laravel-manticore-eloquent/php
 [badge-laravel]: https://img.shields.io/packagist/dependency-v/renatomaldonado/laravel-manticore-eloquent/illuminate/database?label=laravel
 [badge-license]: https://img.shields.io/packagist/l/renatomaldonado/laravel-manticore-eloquent

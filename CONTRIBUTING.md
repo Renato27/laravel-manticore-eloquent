@@ -23,4 +23,10 @@ composer test:coverage        # full report
 composer test:coverage-min    # fails under 95%
 ```
 
+## The tests badge
+
+On every push to `master`, CI runs all the suites against a live Manticore on one PHP and Laravel
+version, and `.github/scripts/tests-badge.php` turns the report into `tests.json` on the `badges`
+branch, which is what the badge reads. The CI badge next to it covers the whole version matrix.
+
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the SQL differences handled.
