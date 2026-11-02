@@ -953,4 +953,3 @@ it('takes the JSON literal null, which decodes to nothing without being invalid'
         expect($table()->count())->toBe(1);
     });
 });
-

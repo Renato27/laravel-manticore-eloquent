@@ -243,4 +243,3 @@ it('rounds a decimal written to a bool and a timestamp column too', function () 
     expect((int) typedTable()->where('id', 1)->value('published'))->toBe(0)
         ->and((int) typedTable()->where('id', 1)->value('seen_at'))->toBe(1001);
 });
-
