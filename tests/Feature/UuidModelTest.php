@@ -58,7 +58,7 @@ it('keeps a uuid key intact instead of casting it to an integer', function () {
 it('filters a uuid key with a bound string', function () {
     $query = UuidKeyDoc::query()->whereKey('550e8400-e29b-41d4-a716-446655440000')->toBase();
 
-    expect($query->toSql())->toBe('select * from `docs_rt` where `id` = ?')
+    expect($query->toSql())->toBe(unlimited('select * from `docs_rt` where `id` = ?'))
         ->and($query->getBindings())->toBe(['550e8400-e29b-41d4-a716-446655440000']);
 });
 
@@ -68,7 +68,7 @@ it('filters several uuid keys through bindings rather than inlined integers', fu
         '660e8400-e29b-41d4-a716-446655440001',
     ])->toBase();
 
-    expect($query->toSql())->toBe('select * from `docs_rt` where `id` in (?, ?)');
+    expect($query->toSql())->toBe(unlimited('select * from `docs_rt` where `id` in (?, ?)'));
 });
 
 it('works with the HasUuids trait from Laravel', function () {
@@ -81,7 +81,7 @@ it('works with the HasUuids trait from Laravel', function () {
 
 it('filters an integer key without qualifying it either', function () {
     expect(IntKeyDoc::query()->whereKey(7)->toBase()->toSql())
-        ->toBe('select * from `docs_rt` where `id` = ?');
+        ->toBe(unlimited('select * from `docs_rt` where `id` = ?'));
 });
 
 it('keeps the integer key as the default', function () {

@@ -31,8 +31,10 @@ value must be a number, a bool, or a bare word. Anything richer is explicit:
 ->option('ranker', $request->input('ranker'))                // throws unless it's a bare word
 ```
 
-`max_matches` is raised automatically when you page beyond Manticore's default cap of
-1000 rows, so deep `paginate()`/`offset()` just works.
+Manticore returns 20 rows and stops at 1000 by default. The driver takes care of both: a query
+without a limit, such as `all()`, `get()` or a relation, returns every row, and `max_matches` is
+raised when you page further, so deep `paginate()`/`offset()` just works. Setting `maxMatches()`
+yourself caps the results at that number.
 
 ## Highlighting
 

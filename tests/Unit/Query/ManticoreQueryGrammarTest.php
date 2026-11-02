@@ -25,7 +25,7 @@ afterEach(fn () => Mockery::close());
 it('compiles a basic select like Eloquent', function () {
     $q = manticoreQuery()->where('country', 'BR');
 
-    expect($q->toSql())->toBe('select * from `companies` where `country` = ?');
+    expect($q->toSql())->toBe(unlimited('select * from `companies` where `country` = ?'));
     expect($q->getBindings())->toBe(['BR']);
 });
 
@@ -127,7 +127,7 @@ it('renders boolean HIGHLIGHT() options as 0/1', function () {
 it('compiles whereIn natively', function () {
     $q = manticoreQuery()->whereIn('id', [1, 2, 3]);
 
-    expect($q->toSql())->toBe('select * from `companies` where `id` in (?, ?, ?)');
+    expect($q->toSql())->toBe(unlimited('select * from `companies` where `id` in (?, ?, ?)'));
     expect($q->getBindings())->toBe([1, 2, 3]);
 });
 
@@ -166,11 +166,31 @@ it('combines several options into a single OPTION clause', function () {
     expect($sql)->toContain('OPTION ranker=sph04, max_matches=2000');
 });
 
-it('does not append OPTION or FACET to a union query', function () {
-    $q = manticoreQuery()->option('ranker', 'sph04')
-        ->union(manticoreQuery()->where('country', 'BR'));
+it('asks for every row when the query has no limit', function () {
+    expect(manticoreQuery('docs')->toSql())
+        ->toBe('select * from `docs` limit 2147483646 OPTION max_matches=2147483646');
+});
 
-    expect($q->toSql())->not->toContain('OPTION');
+it('reaches an offset without a limit', function () {
+    expect(manticoreQuery('docs')->offset(5)->toSql())
+        ->toBe('select * from `docs` limit 2147483646 offset 5 OPTION max_matches=2147483646');
+});
+
+it('leaves an aggregate without the unlimited clause', function () {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')->once()
+        ->withArgs(fn (string $sql) => str_starts_with($sql, 'select count(*)') && ! str_contains($sql, 'limit'))
+        ->andReturn([(object) ['aggregate' => 3]]);
+
+    $query = new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor);
+
+    expect($query->from('docs')->count())->toBe(3);
+});
+
+it('lets an explicit max_matches win over the unlimited clause', function () {
+    expect(manticoreQuery('docs')->maxMatches(50)->toSql())
+        ->toBe('select * from `docs` limit 2147483646 OPTION max_matches=50');
 });
 
 it('treats an empty replace() as a no-op', function () {
@@ -465,7 +485,7 @@ it('checks existence by selecting one row, since Manticore has no select exists(
     ))->from('docs')->where('tag', 'a');
 
     expect($query->exists())->toBe($expected);
-    expect($query->toSql())->toBe('select * from `docs` where `tag` = ?');
+    expect($query->toSql())->toBe(unlimited('select * from `docs` where `tag` = ?'));
 })->with([
     'a row'   => [[(object) ['id' => 1]], true],
     'no rows' => [[], false],
@@ -494,7 +514,7 @@ it('leaves knn() by a numeric string id to the server, without reading the vecto
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('select')
         ->once()
-        ->withArgs(fn (string $sql) => $sql === 'select * from `docs` where knn(embedding, 10, 42)')
+        ->withArgs(fn (string $sql) => $sql === unlimited('select * from `docs` where knn(embedding, 10, 42)'))
         ->andReturn([]);
 
     (new ManticoreQueryBuilder(
@@ -532,44 +552,44 @@ it('leaves its own table out of filters, since Manticore rejects qualified colum
         ->whereIn('docs.views', [1, 2])
         ->whereIntegerInRaw('docs.id', [3]);
 
-    expect($q->toSql())->toBe('select * from `docs` where `tag` = ? and `views` in (?, ?) and `id` in (3)');
+    expect($q->toSql())->toBe(unlimited('select * from `docs` where `tag` = ? and `views` in (?, ?) and `id` in (3)'));
     expect($q->getBindings())->toBe(['a', 1, 2]);
 });
 
 it('leaves the table out inside nested filters', function () {
     $q = manticoreQuery('docs')->where(fn ($query) => $query->where('docs.tag', 'a')->orWhere('docs.tag', 'b'));
 
-    expect($q->toSql())->toBe('select * from `docs` where (`tag` = ? or `tag` = ?)');
+    expect($q->toSql())->toBe(unlimited('select * from `docs` where (`tag` = ? or `tag` = ?)'));
 });
 
 it('recognises an aliased table', function () {
     expect(manticoreQuery('docs as d')->where('d.tag', 'a')->toSql())
-        ->toBe('select * from `docs` as `d` where `tag` = ?');
+        ->toBe(unlimited('select * from `docs` as `d` where `tag` = ?'));
 });
 
 it('keeps a qualifier naming another table, which is an error worth seeing', function () {
     expect(manticoreQuery('docs')->where('other.tag', 'a')->toSql())
-        ->toBe('select * from `docs` where `other`.`tag` = ?');
+        ->toBe(unlimited('select * from `docs` where `other`.`tag` = ?'));
 });
 
 it('leaves a query with a join alone', function () {
     expect(manticoreQuery('docs')->join('b', 'docs.id', '=', 'b.doc_id')->where('docs.tag', 'a')->whereNotNull('docs.x')->toSql())
-        ->toBe('select * from `docs` inner join `b` on `docs`.`id` = `b`.`doc_id` where `docs`.`tag` = ? and `docs`.`x` is not null');
+        ->toBe(unlimited('select * from `docs` inner join `b` on `docs`.`id` = `b`.`doc_id` where `docs`.`tag` = ? and `docs`.`x` is not null'));
 });
 
 it('drops the whereNotNull() a relation adds right after the same column = ?', function () {
     expect(manticoreQuery('docs')->where('docs.post_id', 1)->whereNotNull('docs.post_id')->toSql())
-        ->toBe('select * from `docs` where `post_id` = ?');
+        ->toBe(unlimited('select * from `docs` where `post_id` = ?'));
 
     expect(manticoreQuery('docs')->where('docs.post_id', 1)->whereNotNull('docs.post_id')->where('docs.a', 2)->toSql())
-        ->toBe('select * from `docs` where `post_id` = ? and `a` = ?');
+        ->toBe(unlimited('select * from `docs` where `post_id` = ? and `a` = ?'));
 
     expect(manticoreQuery('docs')->where('x', 1)->orWhere('docs.post_id', 1)->whereNotNull('docs.post_id')->toSql())
-        ->toBe('select * from `docs` where `x` = ? or `post_id` = ?');
+        ->toBe(unlimited('select * from `docs` where `x` = ? or `post_id` = ?'));
 });
 
 it('keeps any other qualified whereNotNull(), since dropping it would change the results', function (Closure $build, string $where) {
-    expect($build(manticoreQuery('docs'))->toSql())->toBe('select * from `docs` where ' . $where);
+    expect($build(manticoreQuery('docs'))->toSql())->toBe(unlimited('select * from `docs` where ' . $where));
 })->with([
     'on its own'        => [fn ($q) => $q->whereNotNull('docs.meta'), '`meta` is not null'],
     'after an or'       => [fn ($q) => $q->where('docs.a', 1)->orWhereNotNull('docs.a'), '`a` = ? or `a` is not null'],
@@ -581,12 +601,12 @@ it('keeps any other qualified whereNotNull(), since dropping it would change the
 
 it('keeps a whereNotNull() written without a qualifier', function () {
     expect(manticoreQuery('docs')->whereNotNull('meta')->toSql())
-        ->toBe('select * from `docs` where `meta` is not null');
+        ->toBe(unlimited('select * from `docs` where `meta` is not null'));
 });
 
 it('keeps a qualified whereNull()', function () {
     expect(manticoreQuery('docs')->whereNull('docs.meta')->toSql())
-        ->toBe('select * from `docs` where `meta` is null');
+        ->toBe(unlimited('select * from `docs` where `meta` is null'));
 });
 
 it('leaves the table out of update and delete filters', function () {
@@ -600,13 +620,13 @@ it('leaves the table out of update and delete filters', function () {
 
 it('leaves raw filters and raw tables alone', function () {
     expect(manticoreQuery('docs')->whereRaw('docs.a = 1')->toSql())
-        ->toBe('select * from `docs` where docs.a = 1');
+        ->toBe(unlimited('select * from `docs` where docs.a = 1'));
 
     expect(manticoreQuery('docs')->where(new Expression('docs.a'), 1)->toSql())
-        ->toBe('select * from `docs` where docs.a = ?');
+        ->toBe(unlimited('select * from `docs` where docs.a = ?'));
 
     expect(manticoreQuery('docs')->fromRaw('docs')->where('docs.a', 1)->toSql())
-        ->toBe('select * from docs where `docs`.`a` = ?');
+        ->toBe(unlimited('select * from docs where `docs`.`a` = ?'));
 });
 
 it('does not change the query while compiling it', function () {

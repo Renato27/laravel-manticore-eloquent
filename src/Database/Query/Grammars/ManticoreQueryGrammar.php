@@ -13,6 +13,12 @@ use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
 class ManticoreQueryGrammar extends MySqlGrammar
 {
     /**
+     * The LIMIT and max_matches of a query without a limit: one below the largest int, which
+     * knn() overflows on. The server only allocates for the rows it finds.
+     */
+    public const UNLIMITED = 2147483646;
+
+    /**
      * Full-text MATCH, bound as a parameter so the search terms stay injection-safe.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
@@ -166,18 +172,24 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
-     * Compile the SELECT, then tack on Manticore's trailing OPTION and FACET clauses.
+     * Compile the SELECT, then tack on Manticore's trailing OPTION and FACET clauses. Manticore
+     * returns 20 rows by default, so a query without a limit asks for all of them, as Eloquent
+     * promises.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
      * @return string
      */
     public function compileSelect(Builder $query): string
     {
-        $sql = parent::compileSelect($query);
-
-        if (! $query instanceof ManticoreQueryBuilder || ! empty($query->unions)) {
-            return $sql;
+        if (! $query instanceof ManticoreQueryBuilder) {
+            return parent::compileSelect($query);
         }
+
+        if ($query->limit === null && $query->aggregate === null) {
+            $query = (clone $query)->limit(self::UNLIMITED);
+        }
+
+        $sql = parent::compileSelect($query);
 
         $sql .= $this->compileOptionClause($query);
         $sql .= $this->compileFacetClause($query);
@@ -295,7 +307,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
 
     /**
      * Build the trailing OPTION clause. Manticore caps results at max_matches (1000 by
-     * default), so when someone pages past that we raise the cap unless they set it.
+     * default), so a query that reaches past that raises the cap unless it was set by hand.
      *
      * @param  \ManticoreEloquent\Database\Query\ManticoreQueryBuilder  $query
      * @return string
@@ -309,7 +321,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
             $needed = (int) ($query->offset ?? 0) + (int) ($query->limit ?? 0);
 
             if ($needed > 1000) {
-                $options['max_matches'] = $needed;
+                $options['max_matches'] = min($needed, self::UNLIMITED);
             }
         }
 
