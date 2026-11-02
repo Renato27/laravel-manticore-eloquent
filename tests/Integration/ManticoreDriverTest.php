@@ -712,17 +712,41 @@ it('chunks a uuid table with chunk()', function () {
     });
 });
 
-it('cannot learn a server-generated uuid through lastInsertId(), only through LAST_INSERT_ID()', function () {
+it('returns a server-generated uuid from insertGetId()', function () {
     withUuidTable(function () {
-        $db = DB::connection('manticore');
+        $table = DB::connection('manticore')->table('it_uuid_articles_rt');
 
-        expect($db->table('it_uuid_articles_rt')->insertGetId(['title' => 'generated']))->toBe(0);
+        $uuid = $table->insertGetId(['title' => 'generated']);
 
-        $generated = (array) $db->selectOne('SELECT LAST_INSERT_ID()');
-        $uuid = reset($generated);
-
-        expect($db->table('it_uuid_articles_rt')->where('id', $uuid)->value('title'))->toBe('generated');
+        expect($uuid)->toBeString()->toMatch('/^[0-9a-f-]{36}$/')
+            ->and($table->where('id', $uuid)->value('title'))->toBe('generated');
     });
+});
+
+it('gives a model the uuid the server generated, and keeps one given by hand', function () {
+    withUuidTable(function () {
+        $model = new class extends ManticoreModel {
+            protected $table = 'it_uuid_articles_rt';
+            protected $guarded = [];
+            public $timestamps = false;
+            protected $keyType = 'string';
+        };
+
+        $generated = $model->create(['title' => 'generated']);
+        $given = $model->create(['id' => '550e8400-e29b-41d4-a716-446655440000', 'title' => 'given']);
+
+        expect($generated->getKey())->toMatch('/^[0-9a-f-]{36}$/')
+            ->and($model->find($generated->getKey())->title)->toBe('generated')
+            ->and($given->getKey())->toBe('550e8400-e29b-41d4-a716-446655440000');
+    });
+});
+
+it('keeps returning a numeric id as an int', function () {
+    $table = DB::connection('manticore')->table('it_articles_rt');
+    $generated = $table->insertGetId(['title' => 'generated', 'views' => 1, 'published' => 1]);
+
+    expect($generated)->toBeInt()->toBeGreaterThan(0)
+        ->and($table->insertGetId(['id' => 77, 'title' => 'given', 'views' => 1, 'published' => 1]))->toBe(77);
 });
 
 it('rejects the uuid type anywhere but the id column', function () {

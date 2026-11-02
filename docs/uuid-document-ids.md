@@ -39,9 +39,9 @@ $article->delete();
 
 ## What differs from integer ids
 
-- **Give the id yourself, or use `HasUuids`.** Manticore can generate a UUID when you leave
-  the id out, but the MySQL protocol cannot return it through `lastInsertId()`, which reports
-  `0`. The model never learns its key; only `SELECT LAST_INSERT_ID()` has it.
+- **Who generates the id is your choice.** To let Manticore do it, leave the id out and keep
+  `$incrementing` on, with `$keyType = 'string'`: `create()` and `insertGetId()` return the UUID
+  the server generated. With `$incrementing = false` the id comes from you or from `HasUuids`.
 - **The id must be one Manticore accepts:** versions 1 to 8, variant `8`, `9`, `a` or `b`.
   The nil UUID is refused. Any case works, and it always reads back in lowercase.
 - **No range or null filters on `id`,** so `chunkById()` and `lazyById()` fail; use `chunk()`.
