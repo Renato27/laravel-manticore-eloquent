@@ -26,4 +26,17 @@ trait HasManticore
 
         return $instance->newQuery();
     }
+
+    /**
+     * Manticore rejects `table`.`column`, so whereKey() and with it find() need the bare key
+     * name there. The model's normal connection keeps the qualified one.
+     *
+     * @return string
+     */
+    public function getQualifiedKeyName()
+    {
+        return $this->getConnectionName() === config('manticore-eloquent.connection', 'manticore')
+            ? $this->getKeyName()
+            : parent::getQualifiedKeyName();
+    }
 }

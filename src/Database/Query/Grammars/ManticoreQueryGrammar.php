@@ -6,6 +6,7 @@ use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use InvalidArgumentException;
+use ManticoreEloquent\Database\Query\DocumentId;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
 
 class ManticoreQueryGrammar extends MySqlGrammar
@@ -27,7 +28,11 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * floats and the integer k are inlined as numeric literals — Manticore rejects quoted
      * (bound) values in the tuple, and the builder has already cast them, so this is
      * injection-safe. Option names are whitelisted and their values cast to the scalar type
-     * Manticore expects, for the same reason.
+     * Manticore expects, for the same reason. A UUID document id stays unquoted on purpose:
+     * Manticore reads a quoted third argument as text to embed, which on an auto-embeddings
+     * column returns unrelated documents without any error. A select never sends this form,
+     * since the builder swaps the id for its vector first. Anything else that does gets a
+     * syntax error, and the id is validated, so it cannot carry anything but a UUID.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where
@@ -44,7 +49,9 @@ class ManticoreQueryGrammar extends MySqlGrammar
             }
 
             $column = $where['column'];
-            $target = (string) (int) $where['vector'];
+            $target = is_string($where['vector'])
+                ? (string) DocumentId::normalize($where['vector'])
+                : (string) (int) $where['vector'];
         }
 
         $sql = 'knn(' . $column . ', ' . (int) $where['k'] . ', ' . $target;

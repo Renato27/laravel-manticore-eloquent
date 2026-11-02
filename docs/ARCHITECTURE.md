@@ -26,6 +26,7 @@ src/
     ├── ManticoreConnection.php            — MySqlConnection + its own grammar/schema/processor/query
     ├── Query/
     │   ├── ManticoreQueryBuilder.php      — match/knn/highlight/option/maxMatches/facet/replace
+    │   ├── DocumentId.php                 — validates integer and UUID document ids
     │   ├── Grammars/ManticoreQueryGrammar.php  — MATCH(?), knn(), HIGHLIGHT(), OPTION, FACET, REPLACE, no lock
     │   └── Processors/ManticoreProcessor.php
     └── Schema/
@@ -56,6 +57,7 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 | Facets | — | `FACET field` clause |
 | Full-doc write | optional `REPLACE` | `REPLACE INTO` exposed via `replace()` |
 | Partial write | — | `REPLACE INTO … SET … WHERE id` via `replaceWhereId()` |
+| Document ids | any primary key | positive integers, or UUIDs on a table declared with `$table->uuid('id')` |
 | Locks | `FOR UPDATE` | none (no-op) |
 | Schema | rich `CREATE TABLE` | simple `CREATE TABLE`; implicit `id`; its own types; `text indexed/stored`; table options (`min_infix_len`, `morphology`) |
 | Introspection | information_schema | `SHOW TABLES` / `DESC` |
@@ -73,6 +75,11 @@ and eager loading.
 - No ACID transactions / locks.
 - `UPDATE` only changes attributes; use `replace()` to rewrite a full document.
 - JOINs across indexes are limited in Manticore — prefer denormalized indexes.
+- `replaceWhereId()` and `knn()` by document id go through Manticore Buddy, which only takes
+  numeric ids, so the builder handles UUIDs itself. `replaceWhereId()` tries the native
+  statement, then falls back to read, merge and full `REPLACE`, which is not atomic. `knn()`
+  reads the document's vector when the select runs. Its compiled form keeps the UUID unquoted
+  because a quoted string there means text to embed and can return wrong rows silently.
 - `ManticoreSchemaBuilder` covers the common cases (create/add/drop/hasTable/columns);
   advanced operations (column rename, secondary indexes) may need `DB::statement`.
 
@@ -104,7 +111,8 @@ Tests are split into three suites:
 - `tests/Integration` — require a real Manticore on the configured MySQL port (defaults to
   9306; override with `MANTICORE_HOST`/`MANTICORE_PORT`) and cover the full cycle
   (create index → insert → search → update/replace → delete), `replace()`, deep pagination,
-  KNN/`HIGHLIGHT()`, table options and schema introspection (`hasTable`/`getColumnListing`).
+  KNN/`HIGHLIGHT()`, table options, schema introspection (`hasTable`/`getColumnListing`) and
+  UUID document ids.
 
 ### Coverage
 

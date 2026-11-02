@@ -144,6 +144,65 @@ Constraints that come from Manticore, not from this driver:
 - **On an id that does not exist it creates a document holding only the fields you
   passed**, with defaults everywhere else, and it does not report that. Check that the
   document exists first if that matters.
+- **With a [UUID id](#uuid-document-ids) it is not atomic.** Buddy only handles numeric ids,
+  so when Manticore rejects the statement the driver reads the document, overlays your fields
+  and rewrites all of it. A write to that document in between is lost, and vector values go
+  through their text form, which keeps about 8 significant digits.
+
+#### UUID document ids
+
+Manticore can use a UUID as the document id, so a document can keep the primary key it has
+in your main database. This needs Manticore 28.6.6 or later and a real-time table, and the
+choice is made when the table is created: a numeric table cannot be converted with `ALTER`.
+
+Declare the id in the migration. It is the only column that is ever declared, and `uuid` is
+only allowed on `id`:
+
+```php
+Schema::connection('manticore')->create('articles', function (Blueprint $table) {
+    $table->uuid('id');
+    $table->text('title');
+    $table->integer('views');
+});
+// create table `articles` (`id` uuid, `title` text, `views` integer)
+```
+
+Then tell the model its key is a string, or use Laravel's `HasUuids` trait, which does that
+and also generates the id:
+
+```php
+class Article extends ManticoreModel
+{
+    public $incrementing = false;
+    protected $keyType = 'string';
+}
+
+$article = Article::create(['id' => '550e8400-e29b-41d4-a716-446655440000', 'title' => 'Hello', 'views' => 1]);
+Article::find('550e8400-e29b-41d4-a716-446655440000');
+Article::where('id', '550e8400-e29b-41d4-a716-446655440000')->first();
+$article->update(['views' => 2]);
+$article->delete();
+```
+
+What differs from integer ids:
+
+- **Give the id yourself, or use `HasUuids`.** Manticore can generate a UUID when you leave
+  the id out, but the MySQL protocol cannot return it through `lastInsertId()`, which reports
+  `0`. The model never learns its key; only `SELECT LAST_INSERT_ID()` has it.
+- **The id must be one Manticore accepts:** versions 1 to 8, variant `8`, `9`, `a` or `b`.
+  The nil UUID is refused. Any case works, and it always reads back in lowercase.
+- **No range or null filters on `id`,** so `chunkById()` and `lazyById()` fail; use `chunk()`.
+  `=`, `!=` and `IN` work, and so does `orderBy('id')`.
+- **`replaceWhereId()` and `knn()` take a UUID, with two extra costs.** Manticore only does
+  these by numeric id, so the driver does the work: `replaceWhereId()` has the limits listed
+  under [Partial replace](#partial-replace), and `knn()` runs one more query to read the
+  document's vector. A document that does not exist or has no vector gives no results.
+- **`toSql()` shows `knn()` with the UUID until the query runs,** and with the vector after.
+  Don't send that SQL by hand, and never quote the UUID: Manticore reads a *quoted* string
+  there as text to embed, which on an auto-embeddings column returns unrelated documents and
+  reports no problem.
+- **Before Manticore 29.2.5, naming a text column in the select returns it empty** on a UUID
+  table, as in `select('id', 'title')`. `select *`, the default, is not affected.
 
 #### KNN / vector search
 
@@ -157,7 +216,7 @@ Article::manticore()
     ->get();
 
 // "more like this document": pass a document id instead of a vector. Manticore returns
-// the neighbours, never the source document itself.
+// the neighbours, never the source document itself. A UUID works too.
 Article::manticore()->knn('embedding', $article->id, k: 10)->get();
 
 // The 4th argument is the whole option block — knn(…, {ef=2000, rescore=1}). Any option
@@ -270,11 +329,12 @@ $table->floatVector('content_vector', dims: 768, similarity: 'cosine', knnOption
   no-ops, and DB transactions should not be relied on.
 - **`update()` vs `replace()`.** Manticore `UPDATE` only changes attribute (non-text)
   columns in place. To rewrite a full document (including `text` fields) use `replace()`.
-- **`id` is special.** Manticore assigns the document id; migrations skip any `id` column.
+- **`id` is special.** Manticore assigns the document id; migrations skip any `id` column,
+  except a `uuid` one, which is how a table gets [UUID ids](#uuid-document-ids).
 - **JOINs are limited.** Cross-index JOINs in Manticore are restricted; prefer denormalized
   indexes. Eager-loading relations across a relational connection still works as usual.
-- **Qualified columns break.** Manticore rejects `` `table`.`column` ``, so `Model::find()`
-  (which qualifies the key) fails — use `->where('id', $id)->first()`.
+- **Qualified columns break.** Manticore rejects `` `table`.`column` ``. The driver leaves the
+  model key unqualified, so `find()` works, but write any other column bare.
 - **Prepared statements.** The driver forces emulated prepares (Manticore's server-side
   prepare support is limited), so bindings — including `MATCH(?)` — are interpolated by PDO.
 

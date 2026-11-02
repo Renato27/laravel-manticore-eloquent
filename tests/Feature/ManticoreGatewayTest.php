@@ -138,3 +138,12 @@ it('does not overwrite a manually-defined manticore connection', function () {
 
     expect(config('database.connections.manticore.host'))->toBe('custom-host');
 });
+
+it('leaves the key unqualified on the gateway, since Manticore rejects qualified columns', function () {
+    expect(GatewayCompany::manticore()->whereKey(7)->toBase()->toSql())
+        ->toBe('select * from `companies_rt` where `id` = ?');
+});
+
+it('keeps the key qualified on the normal connection of a gateway model', function () {
+    expect((new GatewayCompany)->getQualifiedKeyName())->toBe('companies.id');
+});

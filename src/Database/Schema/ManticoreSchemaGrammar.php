@@ -134,7 +134,8 @@ class ManticoreSchemaGrammar extends Grammar
     }
 
     /**
-     * Column definitions, minus the implicit `id` Manticore manages on its own.
+     * Column definitions, minus the implicit `id` Manticore manages on its own. A UUID id
+     * has to be declared, since that is what makes the table use UUID document ids.
      *
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
      * @return array<int, string>
@@ -144,7 +145,7 @@ class ManticoreSchemaGrammar extends Grammar
         $columns = [];
 
         foreach ($blueprint->getAddedColumns() as $column) {
-            if (strtolower((string) $column->name) === 'id') {
+            if (strtolower((string) $column->name) === 'id' && $column->type !== 'uuid') {
                 continue;
             }
 
@@ -174,6 +175,18 @@ class ManticoreSchemaGrammar extends Grammar
         }
 
         return implode(' ', $parts);
+    }
+
+    /**
+     * UUID document id. Manticore only allows this type on the `id` column and rejects it
+     * anywhere else.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeUuid(Fluent $column): string
+    {
+        return 'uuid';
     }
 
     /**
