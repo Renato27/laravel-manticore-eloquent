@@ -7,8 +7,10 @@
   Run the two queries yourself instead.
 - **`match()` on a relation collides with a method of Eloquent's own.** `$post->notes()->match('x')`
   throws a `TypeError`. Use `$post->notes()->getQuery()->match('x')` or `matchText()`.
-- **No transactions / row locks.** Manticore has none; `lock()` / `->lockForUpdate()` are
-  no-ops, and DB transactions should not be relied on.
+- **Transactions are limited, and there are no row locks.** `DB::transaction()` commits and rolls
+  back inserts, replaces and deletes on one table. Writing to a second table fails with an error.
+  `update()` **is not rolled back**, and a transaction cannot read its own writes. `lock()` and
+  `lockForUpdate()` do nothing.
 - **`update()` and `delete()` take no `limit()` or `orderBy()`,** which fail with an error. For the
   same reason, `updateOrInsert()` updates every document that matches, not just the first.
 - **`increment()` and `decrement()` throw a `LogicException`.** Manticore's `UPDATE` takes values,
@@ -18,7 +20,7 @@
   `created_at`. `insertOrIgnore()` fails with an error.
 - **`distinct()` becomes a `GROUP BY`** of the selected columns.
 - **Other SQL the server does not have fails with its error:** `union`, `like`, `whereColumn`,
-  `whereDate` and its relatives.
+  `whereDate` and its relatives. [Compatibility](compatibility.md) has the full list.
 - **`update()` vs `replace()`.** Manticore `UPDATE` only changes attribute (non-text)
   columns in place. To rewrite a full document (including `text` fields) use
   [`replace()`](writing-documents.md).

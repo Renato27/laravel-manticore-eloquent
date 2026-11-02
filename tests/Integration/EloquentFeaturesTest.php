@@ -188,3 +188,63 @@ it('does nothing on an empty upsert()', function () {
 it('fails loudly on insertOrIgnore(), which the server does not have', function () {
     featureTable()->insertOrIgnore(['id' => 1, 'title' => 'x', 'views' => 2, 'slug' => 'c']);
 })->throws(QueryException::class);
+
+it('rolls back and commits writes to one table in a transaction', function () {
+    DB::connection('manticore')->transaction(function () {
+        FeaturePost::create(['id' => 4, 'title' => 'kept', 'views' => 1, 'slug' => 'k']);
+        FeaturePost::where('id', 1)->delete();
+    });
+
+    expect(FeaturePost::find(4))->not->toBeNull()
+        ->and(FeaturePost::find(1))->toBeNull();
+
+    expect(fn () => DB::connection('manticore')->transaction(function () {
+        FeaturePost::create(['id' => 5, 'title' => 'gone', 'views' => 1, 'slug' => 'g']);
+        FeaturePost::where('id', 2)->delete();
+
+        throw new RuntimeException('rollback');
+    }))->toThrow(RuntimeException::class, 'rollback');
+
+    expect(FeaturePost::find(5))->toBeNull()
+        ->and(FeaturePost::find(2))->not->toBeNull();
+});
+
+it('limit: update() does not roll back, and a transaction cannot read its own writes', function () {
+    $connection = DB::connection('manticore');
+
+    $connection->beginTransaction();
+    FeaturePost::where('id', 1)->update(['views' => 99]);
+    FeaturePost::create(['id' => 4, 'title' => 'unseen', 'views' => 1, 'slug' => 'u']);
+    $unseen = FeaturePost::find(4);
+    $connection->rollBack();
+
+    expect($unseen)->toBeNull()
+        ->and(FeaturePost::find(1)->views)->toBe(99);
+});
+
+it('limit: a transaction can only write to one table', function () {
+    Schema::connection('manticore')->dropIfExists('feature_other');
+    Schema::connection('manticore')->create('feature_other', fn (Blueprint $table) => $table->integer('n'));
+
+    try {
+        expect(fn () => DB::connection('manticore')->transaction(function () {
+            featureTable()->where('id', 1)->delete();
+            DB::connection('manticore')->table('feature_other')->insert(['id' => 1, 'n' => 1]);
+        }))->toThrow(QueryException::class, 'another table');
+
+        expect(FeaturePost::find(1))->not->toBeNull();
+    } finally {
+        Schema::connection('manticore')->dropIfExists('feature_other');
+    }
+});
+
+it('limit: SQL the server does not have fails with its error', function (Closure $query) {
+    expect(fn () => $query(featureTable())->get())->toThrow(QueryException::class);
+})->with([
+    'union'       => [fn ($q) => $q->union(featureTable())],
+    'like'        => [fn ($q) => $q->where('slug', 'like', 'a%')],
+    'whereColumn' => [fn ($q) => $q->whereColumn('views', 'id')],
+    'whereDate'   => [fn ($q) => $q->whereDate('views', '2026-01-01')],
+    'whereExists' => [fn ($q) => $q->whereExists(fn ($sub) => $sub->from('feature_posts'))],
+    'a subquery'  => [fn ($q) => $q->whereIn('id', fn ($sub) => $sub->select('id')->from('feature_posts'))],
+]);
