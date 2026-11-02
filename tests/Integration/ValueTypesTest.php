@@ -236,3 +236,11 @@ it('keeps a word in a string, a text and a json column', function () {
 
     expect(typedTable()->where('id', 3)->value('slug'))->toBe('abc');
 });
+
+it('rounds a decimal written to a bool and a timestamp column too', function () {
+    typedTable()->where('id', 1)->update(['published' => 0.2, 'seen_at' => 1000.7]);
+
+    expect((int) typedTable()->where('id', 1)->value('published'))->toBe(0)
+        ->and((int) typedTable()->where('id', 1)->value('seen_at'))->toBe(1001);
+});
+

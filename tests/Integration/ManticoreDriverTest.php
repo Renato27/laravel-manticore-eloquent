@@ -945,3 +945,12 @@ it('refuses invalid json, which INSERT would store as nothing', function () {
         expect($table()->count())->toBe(2);
     });
 });
+
+it('takes the JSON literal null, which decodes to nothing without being invalid', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => 'null']);
+
+        expect($table()->count())->toBe(1);
+    });
+});
+
