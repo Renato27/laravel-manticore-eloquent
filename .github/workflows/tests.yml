@@ -86,7 +86,12 @@ jobs:
         env:
           MANTICORE_HOST: 127.0.0.1
           MANTICORE_PORT: 9306
-          MANTICORE_TEST_EMBEDDINGS: ${{ github.event_name == 'schedule' && matrix.manticore == 'latest' && '1' || '' }}
+      - name: Test auto-embeddings, which download a model
+        if: ${{ github.event_name == 'schedule' && matrix.manticore == 'latest' }}
+        run: vendor/bin/pest --group=embeddings
+        env:
+          MANTICORE_HOST: 127.0.0.1
+          MANTICORE_PORT: 9306
       - name: Publish the tests badge
         if: ${{ !cancelled() && matrix.manticore == 'latest' && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         env:
