@@ -35,3 +35,21 @@ it('reads the vector back as floats, from the database and from a fresh set', fu
     $model->embedding = [0.5, 0.6];
     expect($model->embedding)->toBe([0.5, 0.6]);
 });
+
+it('passes a null or already decoded vector through on read', function () {
+    $cast = new VectorCast;
+
+    expect($cast->get(new CastDoc, 'embedding', null, []))->toBeNull()
+        ->and($cast->get(new CastDoc, 'embedding', [0.5, 0.6], []))->toBe([0.5, 0.6]);
+});
+
+it('reads an empty vector as an empty array', function () {
+    expect((new VectorCast)->get(new CastDoc, 'embedding', '', []))->toBe([]);
+});
+
+it('passes a value that is not an array through on write', function () {
+    $raw = new Expression('(0.1, 0.2)');
+
+    expect((new VectorCast)->set(new CastDoc, 'embedding', $raw, []))->toBe($raw)
+        ->and((new VectorCast)->set(new CastDoc, 'embedding', null, []))->toBeNull();
+});

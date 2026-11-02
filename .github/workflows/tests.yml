@@ -4,6 +4,9 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  # Finds out about a Manticore release that breaks the driver before the next push does.
+  schedule:
+    - cron: '0 6 * * 1'
 
 jobs:
   unit:
@@ -35,15 +38,9 @@ jobs:
       - run: composer update --prefer-dist --no-interaction --no-progress
       - run: vendor/bin/pest --testsuite=Unit,Feature
 
-  integration:
+  quality:
     runs-on: ubuntu-latest
-    name: Integration · live Manticore
-    services:
-      manticore:
-        image: manticoresearch/manticore
-        ports:
-          - 9306:9306
-          - 9308:9308
+    name: Code style and static analysis
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -52,13 +49,56 @@ jobs:
           extensions: pdo, pdo_mysql, mbstring
           coverage: none
       - run: composer update --prefer-dist --no-interaction --no-progress
+      - run: vendor/bin/pint --test
+      - run: composer analyse
+
+  # Runs every suite, not only Integration, so its report is what the README's tests badge shows.
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        manticore: ['28.6.6', 'latest']
+    name: Integration · Manticore ${{ matrix.manticore }}
+    permissions:
+      contents: write
+    services:
+      manticore:
+        image: manticoresearch/manticore:${{ matrix.manticore }}
+        ports:
+          - 9306:9306
+          - 9308:9308
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pdo_mysql, pdo_sqlite, mbstring
+          coverage: none
+      - run: composer update --prefer-dist --no-interaction --no-progress
       - name: Wait for Manticore
         run: |
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if mysql -h127.0.0.1 -P9306 -e 'SHOW TABLES;' 2>/dev/null; then break; fi
             sleep 2
           done
-      - run: vendor/bin/pest --testsuite=Integration
+      - run: vendor/bin/pest --log-junit build/junit.xml
         env:
           MANTICORE_HOST: 127.0.0.1
           MANTICORE_PORT: 9306
+          MANTICORE_TEST_EMBEDDINGS: ${{ github.event_name == 'schedule' && matrix.manticore == 'latest' && '1' || '' }}
+      - name: Publish the tests badge
+        if: ${{ !cancelled() && matrix.manticore == 'latest' && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          php .github/scripts/tests-badge.php build/junit.xml "$RUNNER_TEMP/tests.json"
+          cd "$RUNNER_TEMP"
+          git init -q -b badges badge
+          mv tests.json badge/
+          cd badge
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests.json
+          git commit -qm 'Update the tests badge'
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:badges

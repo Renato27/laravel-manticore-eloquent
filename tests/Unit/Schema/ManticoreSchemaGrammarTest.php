@@ -8,7 +8,6 @@ use ManticoreEloquent\Database\Schema\ManticoreSchemaGrammar;
 /**
  * Pure DDL-compilation tests for the Manticore schema grammar (offline).
  */
-
 function schemaConnection(): Connection
 {
     $connection = Mockery::mock(Connection::class);
@@ -96,6 +95,36 @@ it('skips the implicit id column', function () {
     expect($sql)->toContain('`title` string');
 });
 
+it('declares a uuid id column instead of skipping it', function () {
+    $sql = manticoreSchemaSql('articles_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->uuid('id');
+        $blueprint->string('title');
+    })[0];
+
+    expect($sql)->toBe('create table `articles_rt` (`id` uuid, `title` string)');
+});
+
+it('ignores primary() on a uuid id, since Manticore has no indexes to declare', function () {
+    $sql = manticoreSchemaSql('articles_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->uuid('id')->primary();
+        $blueprint->string('title');
+    });
+
+    expect($sql)->toBe(['create table `articles_rt` (`id` uuid, `title` string)']);
+});
+
+it('still skips an id() column, which stays implicit', function () {
+    $sql = manticoreSchemaSql('articles_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->id();
+        $blueprint->string('title');
+    })[0];
+
+    expect($sql)->toBe('create table `articles_rt` (`title` string)');
+});
+
 it('spells out indexed/stored options on a text column', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();
@@ -111,8 +140,8 @@ it('compiles a float_vector column with knn options', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();
         $blueprint->addColumn('floatVector', 'embedding', [
-            'dims'       => 384,
-            'knnType'    => 'hnsw',
+            'dims' => 384,
+            'knnType' => 'hnsw',
             'similarity' => 'L2',
         ]);
     })[0];
@@ -124,8 +153,8 @@ it('appends extra hnsw tuning options to a float_vector column', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();
         $blueprint->addColumn('floatVector', 'content_vector', [
-            'dims'       => 768,
-            'knnType'    => 'hnsw',
+            'dims' => 768,
+            'knnType' => 'hnsw',
             'similarity' => 'cosine',
             'knnOptions' => ['hnsw_m' => 16, 'hnsw_ef_construction' => 200],
         ]);
@@ -209,4 +238,34 @@ it('wraps identifiers in backticks but leaves * alone', function () {
 
     expect($grammar->wrap('title'))->toBe('`title`');
     expect($grammar->wrap('*'))->toBe('*');
+});
+
+it('writes the whole statement when a blueprint sets an engine', function () {
+    $sql = manticoreSchemaSql('docs', function (Blueprint $table) {
+        $table->create();
+        $table->engine = 'columnar';
+        $table->string('a');
+    });
+
+    expect($sql)->toBe(["create table `docs` (`a` string) engine='columnar'"]);
+});
+
+it('escapes identifiers', function () {
+    expect(manticoreSchemaSql('docs', function (Blueprint $table) {
+        $table->create();
+        $table->string('a`b');
+    }))->toBe(['create table `docs` (`a``b` string)']);
+});
+
+it('leaves out an id whatever its case, unless it is a uuid', function () {
+    expect(manticoreSchemaSql('docs', function (Blueprint $table) {
+        $table->create();
+        $table->bigInteger('ID');
+        $table->string('a');
+    }))->toBe(['create table `docs` (`a` string)']);
+
+    expect(manticoreSchemaSql('docs', function (Blueprint $table) {
+        $table->bigInteger('id');
+        $table->string('a');
+    }))->toBe(['alter table `docs` add column `a` string']);
 });

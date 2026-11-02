@@ -3,14 +3,13 @@
 namespace ManticoreEloquent\Concerns;
 
 use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
+use ManticoreEloquent\Database\ManticoreConnection;
 
 trait HasManticore
 {
     /**
      * Query this model through Manticore on demand, leaving its normal connection alone.
      * Honors a searchableAs() method to pick the index name.
-     *
-     * @return \Illuminate\Database\Eloquent\Builder
      */
     public static function manticore(): EloquentBuilder
     {
@@ -25,5 +24,55 @@ trait HasManticore
         }
 
         return $instance->newQuery();
+    }
+
+    /**
+     * A timestamp column holds a Unix integer, so that is what a date attribute stores while
+     * the model is on Manticore. Reading it back needs nothing extra, since Eloquent already
+     * takes an integer as a date. Any other connection keeps its own format.
+     *
+     * @param  mixed  $value
+     * @return mixed
+     */
+    public function fromDateTime($value)
+    {
+        return $this->getConnection() instanceof ManticoreConnection && ! empty($value)
+            ? $this->asDateTime($value)->getTimestamp()
+            : parent::fromDateTime($value);
+    }
+
+    /**
+     * A document without a value holds its type's empty value, which is what null means on Manticore.
+     * A date would read it as 1970, and an enum or an encrypted value could not read it at all.
+     *
+     * @param  array|object  $attributes
+     * @param  string|null  $connection
+     * @return static
+     */
+    public function newFromBuilder($attributes = [], $connection = null)
+    {
+        $attributes = (array) $attributes;
+
+        if ($this->getConnection() instanceof ManticoreConnection) {
+            foreach ($attributes as $key => $value) {
+                if ($this->holdsNoValue($key, $value)) {
+                    $attributes[$key] = null;
+                }
+            }
+        }
+
+        return parent::newFromBuilder($attributes, $connection);
+    }
+
+    /**
+     * Whether a value read from Manticore means there is none for this attribute.
+     */
+    protected function holdsNoValue(string $key, mixed $value): bool
+    {
+        if (in_array($value, [0, '0'], true)) {
+            return $this->isDateAttribute($key) || $this->isDateCastableWithCustomFormat($key);
+        }
+
+        return $value === '' && ($this->isEnumCastable($key) || $this->isEncryptedCastable($key));
     }
 }
