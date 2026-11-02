@@ -11,7 +11,7 @@ the **MySQL protocol** (port 9306) and the whole Eloquent/Query Builder stack is
 > instead of reimplementing it method by method.
 
 The payoff: `where`, `find`, `create`, `update`, `delete`, `paginate`, `chunk`, `cursor`,
-scopes, casts, model events, relations and migrations all come for free. We only write code
+scopes, casts, model events and migrations all come for free. We only write code
 where Manticore's SQL differs from MySQL.
 
 ## Components
@@ -67,14 +67,15 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 
 Reads (`find`, `firstOrFail`, `value`, `exists`, `latest/oldest`, `count/sum/avg/min/max`
 aggregates, `cursor/lazy/chunk`, local/global scopes), two-way casts, mutators/accessors,
-`$appends`, timestamps, events/observers, mass assignment (`fillable`/`guarded`), pagination
-and eager loading.
+`$appends`, events/observers, mass assignment (`fillable`/`guarded`) and pagination.
 
 ## Known limitations
 
 - No ACID transactions / locks.
 - `UPDATE` only changes attributes; use `replace()` to rewrite a full document.
 - JOINs across indexes are limited in Manticore — prefer denormalized indexes.
+- Eloquent timestamps and relations that query Manticore do not work. See
+  [Known limits](known-limits.md).
 - `replaceWhereId()` and `knn()` by document id go through Manticore Buddy, which only takes
   numeric ids, so the builder handles UUIDs itself. `replaceWhereId()` tries the native
   statement, then falls back to read, merge and full `REPLACE`, which is not atomic. `knn()`
