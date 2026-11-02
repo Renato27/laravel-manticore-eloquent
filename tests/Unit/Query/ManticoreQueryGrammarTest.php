@@ -443,6 +443,8 @@ it('leaves an auto-embeddings column out of the emulated partial replace, so it 
     $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('getName')->andReturn('manticore');
+    $connection->shouldReceive('columnTypes')->with('articles')
+        ->andReturn(['id' => 'uuid', 'title' => 'text', 'tag' => 'string', 'vec' => 'float_vector', 'other' => 'float_vector']);
     $connection->shouldReceive('insert')
         ->once()
         ->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])

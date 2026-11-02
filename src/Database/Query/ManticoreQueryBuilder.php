@@ -197,7 +197,8 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Put one row in its columns' types. Manticore has no NULL to write, so a null becomes the
-     * empty value of its column.
+     * empty value of its column, and a list goes out as a tuple, as does the "a,b" form it reads
+     * back as.
      *
      * @param  array<string, mixed>  $row
      * @return array<string, mixed>
@@ -205,10 +206,27 @@ class ManticoreQueryBuilder extends Builder
     protected function castRow(array $row): array
     {
         foreach ($row as $column => $value) {
-            $row[$column] = $value === null ? $this->emptyValue($column) : $this->castToColumn($column, $value);
+            if ($value === null) {
+                $row[$column] = $this->emptyValue($column);
+            } elseif (is_array($value) || (is_string($value) && $this->isListColumn($column))) {
+                $row[$column] = $this->isListColumn($column) ? $this->formatTuple($value, $this->columnType($column)) : $value;
+            } else {
+                $row[$column] = $this->castToColumn($column, $value);
+            }
         }
 
         return $row;
+    }
+
+    /**
+     * Whether a column holds a list of values.
+     *
+     * @param  string  $column
+     * @return bool
+     */
+    protected function isListColumn(string $column): bool
+    {
+        return in_array($this->columnType($column), ['mva', 'mva64', 'float_vector'], true);
     }
 
     /**
@@ -425,16 +443,12 @@ class ManticoreQueryBuilder extends Builder
     {
         $table = $this->connection->getTablePrefix() . $this->from;
 
-        $types = [];
-
         foreach ($this->connection->select('DESC ' . $table) as $field) {
             if ($field->Type === 'text' && ! str_contains($field->Properties, 'stored')) {
                 throw new RuntimeException(
                     "Cannot partially replace a document in [{$table}]: text field [{$field->Field}] is not stored."
                 );
             }
-
-            $types[$field->Field] = $field->Type;
         }
 
         $document = (array) $this->newQuery()->from($this->from)->where('id', $id)->first();
@@ -446,8 +460,6 @@ class ManticoreQueryBuilder extends Builder
         foreach ($document as $column => $value) {
             if ($value === null || $value === '') {
                 unset($document[$column]);
-            } elseif (in_array($types[$column], ['mva', 'mva64', 'float_vector'], true)) {
-                $document[$column] = new Expression($this->formatTuple($value, $types[$column]));
             }
         }
 
@@ -475,21 +487,20 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Turn a multi-value or vector attribute, which reads back as "a,b", into a tuple literal.
-     * Every part is cast to a number, so inlining it is safe.
+     * A list as a tuple literal. Every part is cast to a number, so inlining it is safe.
      *
-     * @param  string  $value
+     * @param  array<int, mixed>|string  $value
      * @param  string  $type
-     * @return string
+     * @return \Illuminate\Database\Query\Expression
      */
-    protected function formatTuple(string $value, string $type): string
+    protected function formatTuple(array|string $value, string $type): Expression
     {
-        $parts = array_map(
-            static fn (string $part) => $type === 'float_vector' ? var_export((float) $part, true) : (string) (int) $part,
-            explode(',', $value)
-        );
+        $parts = is_array($value) ? $value : array_filter(explode(',', $value), 'strlen');
 
-        return '(' . implode(', ', $parts) . ')';
+        return new Expression('(' . implode(', ', array_map(
+            static fn ($part) => $type === 'float_vector' ? var_export((float) $part, true) : (string) (int) $part,
+            $parts
+        )) . ')');
     }
 
     /**
