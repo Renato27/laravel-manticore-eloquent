@@ -23,10 +23,32 @@ composer test:coverage        # full report
 composer test:coverage-min    # fails under 95%
 ```
 
+The test that uses auto-embeddings downloads a model, so it only runs when asked to, and in the
+weekly CI run:
+
+```bash
+MANTICORE_TEST_EMBEDDINGS=1 vendor/bin/pest tests/Integration/AutoEmbeddingsTest.php
+```
+
+## Saying that Manticore does not do something
+
+Check the [Manticore manual](https://manual.manticoresearch.com) and the Laravel docs first, then try
+it against a real server: a failed syntax does not prove the feature is missing. A limit in the docs
+links to the section of the manual that states it. When the manual says nothing, add the raw SQL to
+`tests/Integration/ServerLimitsTest.php`, so a new release that changes it fails the weekly run.
+
+## Code style and static analysis
+
+```bash
+composer lint       # formats with Pint
+composer analyse    # PHPStan
+```
+
 ## The tests badge
 
-On every push to `master`, CI runs all the suites against a live Manticore on one PHP and Laravel
-version, and `.github/scripts/tests-badge.php` turns the report into `tests.json` on the `badges`
+On every push to `master`, CI runs all the suites against a live Manticore, the oldest tested
+version and the latest, on one PHP and Laravel version, and `.github/scripts/tests-badge.php`
+turns the report of the latest into `tests.json` on the `badges`
 branch, which is what the badge reads. The CI badge next to it covers the whole version matrix.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the SQL differences handled.

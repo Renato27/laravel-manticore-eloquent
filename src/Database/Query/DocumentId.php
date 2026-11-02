@@ -16,10 +16,8 @@ final class DocumentId
      * Check an id and return it in the form to send: a UUID string, or an integer. Numeric
      * strings become integers because Buddy only handles an unquoted numeric id.
      *
-     * @param  int|string  $id
-     * @return int|string
      *
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     public static function normalize(int|string $id): int|string
     {

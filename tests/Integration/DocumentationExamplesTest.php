@@ -4,6 +4,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use ManticoreEloquent\Concerns\HasManticore;
@@ -15,11 +16,12 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
  * are the first lines of this package anyone copies, so they have to work. It also holds the
  * limits docs/known-limits.md describes; if one of those tests fails, that page is out of date.
  */
-
 class DocsArticle extends ManticoreModel
 {
     protected $table = 'docs_articles_rt';
+
     protected $guarded = [];
+
     protected $casts = ['published' => 'boolean'];
 }
 
@@ -36,31 +38,42 @@ class DocsCompany extends Model
 class DocsUuidArticle extends ManticoreModel
 {
     protected $table = 'docs_plain_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 }
 
 class DocsVectorArticle extends ManticoreModel
 {
     protected $table = 'docs_plain_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $casts = ['embedding' => VectorCast::class];
 }
 
 class DocsTimestampedArticle extends ManticoreModel
 {
     protected $table = 'docs_stamped_rt';
+
     protected $guarded = [];
 }
 
 class DocsDatetimeArticle extends ManticoreModel
 {
     protected $table = 'docs_stamped_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $casts = ['created_at' => 'datetime'];
 }
 
@@ -69,15 +82,16 @@ class DocsStampedGatewayArticle extends Model
     use HasManticore;
 
     protected $table = 'docs_stamped_rt';
+
     protected $guarded = [];
 }
 
-function docsSchema(): \Illuminate\Database\Schema\Builder
+function docsSchema(): Illuminate\Database\Schema\Builder
 {
     return Schema::connection('manticore');
 }
 
-function docsTable(string $table): \Illuminate\Database\Query\Builder
+function docsTable(string $table): Illuminate\Database\Query\Builder
 {
     return DB::connection('manticore')->table($table);
 }
@@ -85,8 +99,8 @@ function docsTable(string $table): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     foreach (['docs_articles_rt', 'docs_companies_rt', 'docs_plain_rt', 'docs_stamped_rt'] as $table) {
@@ -116,7 +130,7 @@ afterEach(function () {
     foreach (['docs_articles_rt', 'docs_companies_rt', 'docs_plain_rt', 'docs_stamped_rt'] as $table) {
         try {
             docsSchema()->dropIfExists($table);
-        } catch (\Throwable) {
+        } catch (Throwable) {
         }
     }
 });
@@ -296,7 +310,7 @@ it('writes a datetime cast as a Unix integer and reads it back as a date', funct
 
     DocsDatetimeArticle::create(['id' => 2, 'title' => 'b', 'created_at' => '2026-01-02 03:04:05']);
 
-    $expected = Illuminate\Support\Carbon::parse('2026-01-02 03:04:05')->getTimestamp();
+    $expected = Carbon::parse('2026-01-02 03:04:05')->getTimestamp();
 
     expect(stampedRow(2)->created_at)->toBe($expected);
     expect(DocsDatetimeArticle::find(2)->created_at->format('Y-m-d H:i:s'))->toBe('2026-01-02 03:04:05');
@@ -353,17 +367,9 @@ it('fails with an error when the table has no updated_at', function () {
         ->toThrow(QueryException::class, 'updated_at');
 });
 
-it('limit: a date string written without a date cast silently stores 0', function () {
-    createStampedTable();
-
-    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'created_at' => '2026-01-02 03:04:05']);
-
-    expect(stampedRow(1)->created_at)->toBe(0);
-});
-
-it('limit: a document without a timestamp reads as 1970', function () {
+it('reads a document without a timestamp as having none', function () {
     createStampedTable();
     docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a']);
 
-    expect(DocsTimestampedArticle::find(1)->created_at->year)->toBe(1970);
+    expect(DocsTimestampedArticle::find(1)->created_at)->toBeNull();
 });

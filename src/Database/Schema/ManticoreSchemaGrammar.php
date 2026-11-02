@@ -2,9 +2,11 @@
 
 namespace ManticoreEloquent\Database\Schema;
 
+use Illuminate\Database\Connection;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Grammars\Grammar;
 use Illuminate\Support\Fluent;
+use LogicException;
 
 class ManticoreSchemaGrammar extends Grammar
 {
@@ -19,27 +21,25 @@ class ManticoreSchemaGrammar extends Grammar
      * Compile CREATE TABLE. The optional $connection keeps one signature valid across
      * Laravel 10/11 (which passes it in) and Laravel 12 (where the grammar holds its own).
      *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @param  \Illuminate\Support\Fluent  $command
-     * @param  \Illuminate\Database\Connection|null  $connection
-     * @return string
+     * @param  Connection|null  $connection
      */
     public function compileCreate(Blueprint $blueprint, Fluent $command, $connection = null): string
     {
-        $columns = implode(', ', $this->getManticoreColumns($blueprint));
+        // A table needs a column to be declared, and the id is the one that is always there.
+        $columns = implode(', ', $this->getManticoreColumns($blueprint->getAddedColumns()) ?: ['`id` bigint']);
 
         $sql = sprintf('create table %s (%s)', $this->wrapTable($blueprint), $columns);
 
         $engine = $blueprint->engine ?? (($connection ?? $this->connection ?? null)?->getConfig('engine'));
 
         if (! empty($engine)) {
-            $sql .= " engine='" . $engine . "'";
+            $sql .= " engine='".$engine."'";
         }
 
         $options = $this->getManticoreTableOptions($blueprint);
 
         if ($options !== '') {
-            $sql .= ' ' . $options;
+            $sql .= ' '.$options;
         }
 
         return $sql;
@@ -48,9 +48,6 @@ class ManticoreSchemaGrammar extends Grammar
     /**
      * Collect table-level Manticore options (min_infix_len, morphology, …) declared via the
      * Blueprint macros, and render them as the trailing key='value' pairs of CREATE TABLE.
-     *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @return string
      */
     protected function getManticoreTableOptions(Blueprint $blueprint): string
     {
@@ -69,7 +66,7 @@ class ManticoreSchemaGrammar extends Grammar
         $pairs = [];
 
         foreach ($options as $key => $value) {
-            $pairs[] = $key . "='" . str_replace("'", "\\'", (string) $value) . "'";
+            $pairs[] = $key."='".str_replace("'", "\\'", (string) $value)."'";
         }
 
         return implode(' ', $pairs);
@@ -78,49 +75,111 @@ class ManticoreSchemaGrammar extends Grammar
     /**
      * One ALTER per column — Manticore adds columns one at a time.
      *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @param  \Illuminate\Support\Fluent  $command
      * @return array<int, string>
      */
     public function compileAdd(Blueprint $blueprint, Fluent $command): array
     {
         $table = $this->wrapTable($blueprint);
 
-        return array_map(
-            fn (string $column) => "alter table {$table} add column {$column}",
-            $this->getManticoreColumns($blueprint)
-        );
+        // Laravel 10 runs one command for all the added columns, and later versions one for each.
+        $columns = isset($command->column) ? [$command->column] : $blueprint->getAddedColumns();
+
+        return array_map(fn (string $column) => "alter table {$table} add column {$column}", $this->getManticoreColumns($columns));
     }
 
     /**
      * Compile DROP TABLE.
-     *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @param  \Illuminate\Support\Fluent  $command
-     * @return string
      */
     public function compileDrop(Blueprint $blueprint, Fluent $command): string
     {
-        return 'drop table ' . $this->wrapTable($blueprint);
+        return 'drop table '.$this->wrapTable($blueprint);
     }
 
     /**
      * Compile DROP TABLE IF EXISTS.
-     *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @param  \Illuminate\Support\Fluent  $command
-     * @return string
      */
     public function compileDropIfExists(Blueprint $blueprint, Fluent $command): string
     {
-        return 'drop table if exists ' . $this->wrapTable($blueprint);
+        return 'drop table if exists '.$this->wrapTable($blueprint);
+    }
+
+    /**
+     * Compile a table rename.
+     */
+    public function compileRename(Blueprint $blueprint, Fluent $command): string
+    {
+        return 'alter table '.$this->wrapTable($blueprint).' rename '.$this->wrapTable($command->to);
+    }
+
+    /**
+     * Manticore can only change a column from int to bigint.
+     *
+     * @see https://manual.manticoresearch.com/Updating_table_schema_and_settings
+     *
+     * @return array<int, string>
+     *
+     * @throws LogicException
+     */
+    public function compileChange(Blueprint $blueprint, Fluent $command, $connection = null)
+    {
+        // Laravel 10 runs one command for all the changed columns, and later versions one for each.
+        $columns = isset($command->column) ? [$command->column] : $blueprint->getChangedColumns();
+
+        return array_map(function ($column) use ($blueprint) {
+            if ($column->type !== 'bigInteger') {
+                throw new LogicException("Manticore can only change a column to bigInteger, so it cannot change [{$column->name}] to [{$column->type}].");
+            }
+
+            return 'alter table '.$this->wrapTable($blueprint).' modify column '.$this->wrap($column).' bigint';
+        }, $columns);
+    }
+
+    /**
+     * Manticore has no foreign keys to declare, so the column stays and the constraint is left out,
+     * as with indexes.
+     *
+     * @return null
+     */
+    public function compileForeign(Blueprint $blueprint, Fluent $command)
+    {
+        return null;
+    }
+
+    /**
+     * See compileForeign().
+     *
+     * @return null
+     */
+    public function compileDropForeign(Blueprint $blueprint, Fluent $command)
+    {
+        return null;
+    }
+
+    /**
+     * A text field is already full-text indexed.
+     *
+     * @see https://manual.manticoresearch.com/Creating_a_table/Data_types
+     *
+     * @return null
+     */
+    public function compileFulltext(Blueprint $blueprint, Fluent $command)
+    {
+        return null;
+    }
+
+    /**
+     * See compileFulltext().
+     *
+     * @return null
+     */
+    public function compileDropFullText(Blueprint $blueprint, Fluent $command)
+    {
+        return null;
     }
 
     /**
      * Compile one ALTER … DROP COLUMN per dropped column.
      *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
-     * @param  \Illuminate\Support\Fluent  $command
      * @return array<int, string>
      */
     public function compileDropColumn(Blueprint $blueprint, Fluent $command): array
@@ -128,7 +187,7 @@ class ManticoreSchemaGrammar extends Grammar
         $table = $this->wrapTable($blueprint);
 
         return array_map(
-            fn ($column) => "alter table {$table} drop column " . $this->wrap($column),
+            fn ($column) => "alter table {$table} drop column ".$this->wrap($column),
             $command->columns
         );
     }
@@ -137,30 +196,44 @@ class ManticoreSchemaGrammar extends Grammar
      * Column definitions, minus the implicit `id` Manticore manages on its own. A UUID id
      * has to be declared, since that is what makes the table use UUID document ids.
      *
-     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
      * @return array<int, string>
      */
-    protected function getManticoreColumns(Blueprint $blueprint): array
+    protected function getManticoreColumns(array $columns): array
     {
-        $columns = [];
+        $definitions = [];
 
-        foreach ($blueprint->getAddedColumns() as $column) {
-            if (strtolower((string) $column->name) === 'id' && $column->type !== 'uuid') {
+        foreach ($columns as $column) {
+            if (strtolower($column->name) === 'id' && $column->type !== 'uuid') {
                 continue;
             }
 
-            $columns[] = $this->wrap($column) . ' ' . $this->getType($column);
+            $definitions[] = $this->wrap($column).' '.$this->getType($column);
         }
 
-        return $columns;
+        return $definitions;
+    }
+
+    /**
+     * The definition of a column, or a clear error when Manticore has no type for it.
+     *
+     * @see https://manual.manticoresearch.com/Creating_a_table/Data_types
+     *
+     * @return string
+     *
+     * @throws LogicException
+     */
+    protected function getType(Fluent $column)
+    {
+        if (! method_exists($this, 'type'.ucfirst($column->type))) {
+            throw new LogicException("Manticore has no column type for [{$column->type}], used by column [{$column->name}].");
+        }
+
+        return parent::getType($column);
     }
 
     /**
      * Full-text searchable field. Defaults to Manticore's implicit `indexed stored`;
      * use ->indexed()/->stored() on the column to spell the options out explicitly.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeText(Fluent $column): string
     {
@@ -180,9 +253,6 @@ class ManticoreSchemaGrammar extends Grammar
     /**
      * UUID document id. Manticore only allows this type on the `id` column and rejects it
      * anywhere else.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeUuid(Fluent $column): string
     {
@@ -191,9 +261,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Plain string attribute (filterable/sortable, not full-text).
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeString(Fluent $column): string
     {
@@ -202,9 +269,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Char behaves like a string attribute.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeChar(Fluent $column): string
     {
@@ -213,9 +277,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * 32-bit integer attribute.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeInteger(Fluent $column): string
     {
@@ -224,9 +285,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Tiny integers collapse to a 32-bit integer.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeTinyInteger(Fluent $column): string
     {
@@ -235,9 +293,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Small integers collapse to a 32-bit integer.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeSmallInteger(Fluent $column): string
     {
@@ -246,9 +301,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Medium integers collapse to a 32-bit integer.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeMediumInteger(Fluent $column): string
     {
@@ -257,9 +309,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * 64-bit integer attribute.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeBigInteger(Fluent $column): string
     {
@@ -268,9 +317,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Floating-point attribute.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeFloat(Fluent $column): string
     {
@@ -279,9 +325,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Doubles are stored as float.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeDouble(Fluent $column): string
     {
@@ -290,9 +333,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Decimals are stored as float — Manticore has no fixed-precision type.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeDecimal(Fluent $column): string
     {
@@ -301,9 +341,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Boolean attribute.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeBoolean(Fluent $column): string
     {
@@ -312,9 +349,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * JSON document attribute.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeJson(Fluent $column): string
     {
@@ -323,9 +357,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * JSONB maps to the same json type.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeJsonb(Fluent $column): string
     {
@@ -334,9 +365,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Stored as a Unix timestamp.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeTimestamp(Fluent $column): string
     {
@@ -345,9 +373,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Datetimes are stored as a Unix timestamp.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeDateTime(Fluent $column): string
     {
@@ -356,9 +381,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Dates are stored as a Unix timestamp.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeDate(Fluent $column): string
     {
@@ -367,9 +389,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Multi-value attribute (uint set).
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeMva(Fluent $column): string
     {
@@ -378,9 +397,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Multi-value attribute (bigint set).
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeMva64(Fluent $column): string
     {
@@ -389,9 +405,6 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Float vector column for KNN / semantic search, with its knn_* options inline.
-     *
-     * @param  \Illuminate\Support\Fluent  $column
-     * @return string
      */
     protected function typeFloatVector(Fluent $column): string
     {
@@ -410,22 +423,86 @@ class ManticoreSchemaGrammar extends Grammar
         }
 
         foreach ((array) ($column->knnOptions ?? []) as $key => $value) {
-            $parts[] = $key . "='" . $value . "'";
+            $parts[] = $key."='".$value."'";
         }
 
         return implode(' ', $parts);
+    }
+
+    protected function typeTinyText(Fluent $column): string
+    {
+        return $this->typeText($column);
+    }
+
+    protected function typeMediumText(Fluent $column): string
+    {
+        return $this->typeText($column);
+    }
+
+    protected function typeLongText(Fluent $column): string
+    {
+        return $this->typeText($column);
+    }
+
+    protected function typeEnum(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    protected function typeSet(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    protected function typeIpAddress(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    protected function typeMacAddress(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    /**
+     * Manticore has no type for a time of day, so it stays as written.
+     *
+     * @see https://manual.manticoresearch.com/Creating_a_table/Data_types
+     */
+    protected function typeTime(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    protected function typeTimeTz(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    protected function typeYear(Fluent $column): string
+    {
+        return 'integer';
+    }
+
+    protected function typeTimestampTz(Fluent $column): string
+    {
+        return 'timestamp';
+    }
+
+    protected function typeDateTimeTz(Fluent $column): string
+    {
+        return 'timestamp';
     }
 
     /**
      * Wrap an identifier in Manticore backticks, leaving * alone.
      *
      * @param  string  $value
-     * @return string
      */
     protected function wrapValue($value): string
     {
         if ($value !== '*') {
-            return '`' . str_replace('`', '``', $value) . '`';
+            return '`'.str_replace('`', '``', $value).'`';
         }
 
         return $value;

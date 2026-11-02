@@ -19,7 +19,7 @@ function testsBadgeFor(?string $report): array
     }
 
     exec(
-        implode(' ', array_map('escapeshellarg', [PHP_BINARY, dirname(__DIR__, 2) . '/.github/scripts/tests-badge.php', $input, $output])),
+        implode(' ', array_map('escapeshellarg', [PHP_BINARY, dirname(__DIR__, 2).'/.github/scripts/tests-badge.php', $input, $output])),
         $lines,
         $status
     );
@@ -48,9 +48,9 @@ function junitReport(int $tests, int $failures = 0, int $errors = 0, int $skippe
 it('writes a badge the way shields.io reads an endpoint', function () {
     expect(testsBadgeFor(junitReport(213)))->toBe([
         'schemaVersion' => 1,
-        'label'         => 'tests',
-        'message'       => '100% (213/213)',
-        'color'         => 'brightgreen',
+        'label' => 'tests',
+        'message' => '100% (213/213)',
+        'color' => 'brightgreen',
     ]);
 });
 
@@ -59,11 +59,11 @@ it('counts failures, errors and skipped tests against the percentage', function 
         ->message->toBe($message)
         ->color->toBe('red');
 })->with([
-    'a failure'    => [[200, 10, 0, 0], '95% (190/200)'],
-    'an error'     => [[200, 0, 10, 0], '95% (190/200)'],
-    'skipped'      => [[200, 0, 0, 50], '75% (150/200)'],
-    'all of them'  => [[200, 10, 10, 10], '85% (170/200)'],
-    'one decimal'  => [[200, 1, 0, 0], '99.5% (199/200)'],
+    'a failure' => [[200, 10, 0, 0], '95% (190/200)'],
+    'an error' => [[200, 0, 10, 0], '95% (190/200)'],
+    'skipped' => [[200, 0, 0, 50], '75% (150/200)'],
+    'all of them' => [[200, 10, 10, 10], '85% (170/200)'],
+    'one decimal' => [[200, 1, 0, 0], '99.5% (199/200)'],
     'none passing' => [[4, 4, 0, 0], '0% (0/4)'],
 ]);
 
@@ -79,16 +79,16 @@ it('reports no results rather than keeping the last percentage', function (?stri
         ->color->toBe('red');
 })->with([
     'report missing' => [null],
-    'report empty'   => [''],
-    'not xml'        => ['Fatal error: out of memory'],
-    'no test ran'    => [junitReport(0)],
-    'no testsuite'   => ['<?xml version="1.0"?><testsuites/>'],
+    'report empty' => [''],
+    'not xml' => ['Fatal error: out of memory'],
+    'no test ran' => [junitReport(0)],
+    'no testsuite' => ['<?xml version="1.0"?><testsuites/>'],
 ]);
 
 it('publishes the badge where the README reads it', function () {
     $root = dirname(__DIR__, 2);
-    $readme = urldecode((string) file_get_contents($root . '/README.md'));
-    $workflow = (string) file_get_contents($root . '/.github/workflows/tests.yml');
+    $readme = urldecode((string) file_get_contents($root.'/README.md'));
+    $workflow = (string) file_get_contents($root.'/.github/workflows/tests.yml');
 
     expect($readme)->toContain('raw.githubusercontent.com/Renato27/laravel-manticore-eloquent/badges/tests.json');
     expect($workflow)

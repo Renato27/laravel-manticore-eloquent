@@ -11,7 +11,7 @@
 Use **Eloquent natively on Manticore Search**. This package registers Manticore as a
 first-class Laravel database connection over the **MySQL protocol** (port `9306`), so
 `where`, `find`, `create`, `update`, `delete`, `paginate`, `chunk`, scopes, casts, relations
-and migrations work the way you already write them, plus Manticore helpers (`match`, `knn`,
+and migrations work the way you already write them, plus Manticore helpers (`match`, `matchText`, `knn`,
 `highlight`, `option`, `maxMatches`, `facet`, `replace`).
 
 Manticore speaks the MySQL wire protocol, and all of Eloquent is built on a `Connection` +
@@ -24,7 +24,7 @@ grammar that inherits the whole framework.
 |---|---|
 | PHP | `^8.1` (with `pdo_mysql`) |
 | Laravel | `^10.0 \| ^11.0 \| ^12.0 \| ^13.0` |
-| Manticore Search | MySQL protocol enabled (default port `9306`) |
+| Manticore Search | Tested on `28.6.6` and later, with the MySQL protocol enabled (default port `9306`) |
 
 ## Installation
 
@@ -98,19 +98,22 @@ Company::manticore()->match('fintech')->paginate(); // Manticore
 
 ## Before you start
 
-Manticore is not MySQL. It has no transactions, `update()` cannot change full-text fields, and
-relations that need a join or a subquery, such as `belongsToMany`, fail with an error.
-[Known limits](docs/known-limits.md) has the details.
+Manticore is not MySQL. The driver translates what it can: a query without a limit returns every
+row, values take the type of their column, and `whereNull()`, `SoftDeletes` and `belongsToMany` work.
+What the server does not have fails with an error, such as `update()` of a full-text field or
+`whereHas()`. [Compatibility](docs/compatibility.md) lists it all, with the manual's reference for
+each limit.
 
 ## Documentation
 
 | Guide | What it covers |
 |---|---|
-| [Querying](docs/querying.md) | Full-text `match`, `option`, `maxMatches`, `facet`, `highlight` |
-| [Writing documents](docs/writing-documents.md) | `update` vs `replace`, partial `replaceWhereId` |
+| [Querying](docs/querying.md) | Full-text `match` and `matchText`, `option`, `maxMatches`, `facet`, `highlight`, JSON |
+| [Writing documents](docs/writing-documents.md) | `update` vs `replace`, partial `replaceWhereId`, multi-value attributes |
 | [Vector search](docs/vector-search.md) | `knn`, "more like this document", `VectorCast` |
 | [UUID document ids](docs/uuid-document-ids.md) | The same primary key in your database and in Manticore |
 | [Migrations](docs/migrations.md) | Column types, vector columns, table options |
+| [Compatibility](docs/compatibility.md) | What works, what is translated and what fails |
 | [Known limits](docs/known-limits.md) | What differs from MySQL: relations, timestamps, transactions, JOINs |
 | [Architecture](docs/ARCHITECTURE.md) | The design and the SQL differences handled |
 

@@ -1,11 +1,11 @@
 <?php
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Database\Eloquent\Model;
 use ManticoreEloquent\Concerns\HasManticore;
 use ManticoreEloquent\Eloquent\Casts\VectorCast;
 use ManticoreEloquent\Eloquent\ManticoreModel;
@@ -16,11 +16,12 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
  *
  *   docker run --rm -p 9306:9306 -p 9308:9308 manticoresearch/manticore
  */
-
 class IntegrationArticle extends ManticoreModel
 {
     protected $table = 'it_articles_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
 }
 
@@ -29,22 +30,26 @@ class IntegrationGatewayArticle extends Model
     use HasManticore;
 
     protected $table = 'it_articles_rt';
+
     public $timestamps = false;
 }
 
 class IntegrationVector extends ManticoreModel
 {
     protected $table = 'it_vectors_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $casts = ['embedding' => VectorCast::class];
 }
 
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     Schema::connection('manticore')->dropIfExists('it_articles_rt');
@@ -58,7 +63,7 @@ beforeEach(function () {
 afterAll(function () {
     try {
         Schema::connection('manticore')->dropIfExists('it_articles_rt');
-    } catch (\Throwable) {
+    } catch (Throwable) {
     }
 });
 
@@ -141,9 +146,9 @@ it('rewrites a full document with replace()', function () {
     IntegrationArticle::create(['id' => 7, 'title' => 'first revision', 'views' => 1, 'published' => false]);
 
     IntegrationArticle::query()->replace([
-        'id'        => 7,
-        'title'     => 'second revision',
-        'views'     => 2,
+        'id' => 7,
+        'title' => 'second revision',
+        'views' => 2,
         'published' => true,
     ]);
 
@@ -328,10 +333,15 @@ it('partially replaces only the given fields, including full-text ones', functio
 class IntegrationUuidArticle extends ManticoreModel
 {
     protected $table = 'it_uuid_articles_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     public $incrementing = false;
+
     protected $keyType = 'string';
+
     protected $casts = ['embedding' => VectorCast::class];
 }
 
@@ -340,8 +350,11 @@ class IntegrationHasUuidsArticle extends ManticoreModel
     use HasUuids;
 
     protected $table = 'it_uuid_articles_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $casts = ['embedding' => VectorCast::class];
 }
 
@@ -712,17 +725,45 @@ it('chunks a uuid table with chunk()', function () {
     });
 });
 
-it('cannot learn a server-generated uuid through lastInsertId(), only through LAST_INSERT_ID()', function () {
+it('returns a server-generated uuid from insertGetId()', function () {
     withUuidTable(function () {
-        $db = DB::connection('manticore');
+        $table = DB::connection('manticore')->table('it_uuid_articles_rt');
 
-        expect($db->table('it_uuid_articles_rt')->insertGetId(['title' => 'generated']))->toBe(0);
+        $uuid = $table->insertGetId(['title' => 'generated']);
 
-        $generated = (array) $db->selectOne('SELECT LAST_INSERT_ID()');
-        $uuid = reset($generated);
-
-        expect($db->table('it_uuid_articles_rt')->where('id', $uuid)->value('title'))->toBe('generated');
+        expect($uuid)->toBeString()->toMatch('/^[0-9a-f-]{36}$/')
+            ->and($table->where('id', $uuid)->value('title'))->toBe('generated');
     });
+});
+
+it('gives a model the uuid the server generated, and keeps one given by hand', function () {
+    withUuidTable(function () {
+        $model = new class extends ManticoreModel
+        {
+            protected $table = 'it_uuid_articles_rt';
+
+            protected $guarded = [];
+
+            public $timestamps = false;
+
+            protected $keyType = 'string';
+        };
+
+        $generated = $model->create(['title' => 'generated']);
+        $given = $model->create(['id' => '550e8400-e29b-41d4-a716-446655440000', 'title' => 'given']);
+
+        expect($generated->getKey())->toMatch('/^[0-9a-f-]{36}$/')
+            ->and($model->find($generated->getKey())->title)->toBe('generated')
+            ->and($given->getKey())->toBe('550e8400-e29b-41d4-a716-446655440000');
+    });
+});
+
+it('keeps returning a numeric id as an int', function () {
+    $table = DB::connection('manticore')->table('it_articles_rt');
+    $generated = $table->insertGetId(['title' => 'generated', 'views' => 1, 'published' => 1]);
+
+    expect($generated)->toBeInt()->toBeGreaterThan(0)
+        ->and($table->insertGetId(['id' => 77, 'title' => 'given', 'views' => 1, 'published' => 1]))->toBe(77);
 });
 
 it('rejects the uuid type anywhere but the id column', function () {
@@ -730,4 +771,185 @@ it('rejects the uuid type anywhere but the id column', function () {
         $table->uuid('guid');
         $table->text('title');
     }))->toThrow(QueryException::class, "can only be used for 'id'");
+});
+
+it('searches several indexes through searchableAs()', function () {
+    $schema = Schema::connection('manticore');
+
+    foreach (['it_multi_a', 'it_multi_b'] as $table) {
+        $schema->dropIfExists($table);
+        $schema->create($table, fn (Blueprint $blueprint) => $blueprint->text('title'));
+    }
+
+    try {
+        DB::connection('manticore')->table('it_multi_a')->insert(['id' => 1, 'title' => 'alpha']);
+        DB::connection('manticore')->table('it_multi_b')->insert(['id' => 2, 'title' => 'alpha']);
+
+        $model = new class extends Model
+        {
+            use HasManticore;
+
+            public function searchableAs(): array
+            {
+                return ['it_multi_a', 'it_multi_b'];
+            }
+        };
+
+        expect($model::manticore()->getQuery()->match('alpha')->orderBy('id')->pluck('id')->all())->toBe([1, 2]);
+    } finally {
+        foreach (['it_multi_a', 'it_multi_b'] as $table) {
+            $schema->dropIfExists($table);
+        }
+    }
+});
+
+function withJsonTable(Closure $test): void
+{
+    $schema = Schema::connection('manticore');
+    $schema->dropIfExists('it_json');
+    $schema->create('it_json', function (Blueprint $table) {
+        $table->json('meta');
+        $table->integer('views');
+    });
+
+    try {
+        $test(fn () => DB::connection('manticore')->table('it_json'));
+    } finally {
+        $schema->dropIfExists('it_json');
+    }
+}
+
+it('filters by a json path', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => '{"a":1,"s":"x","b":{"c":2},"f":1.5}', 'views' => 1]);
+        $table()->insert(['id' => 2, 'meta' => '{"a":2,"s":"y","b":{"c":3},"f":2.5}', 'views' => 2]);
+
+        expect($table()->where('meta->a', 1)->pluck('id')->all())->toBe([1])
+            ->and($table()->where('meta->a', '>', 1)->pluck('id')->all())->toBe([2])
+            ->and($table()->where('meta->s', 'y')->pluck('id')->all())->toBe([2])
+            ->and($table()->where('meta->b->c', 3)->pluck('id')->all())->toBe([2])
+            ->and($table()->where('meta->f', '>', 2.0)->pluck('id')->all())->toBe([2])
+            ->and($table()->whereIn('meta->a', [1, 2])->count())->toBe(2)
+            ->and($table()->whereNotNull('meta->s')->count())->toBe(2)
+            ->and($table()->whereNull('meta->nope')->count())->toBe(2)
+            ->and($table()->orderBy('meta->a', 'desc')->pluck('id')->all())->toBe([2, 1]);
+    });
+});
+
+it('selects a json path', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => '{"a":7}', 'views' => 1]);
+
+        expect((int) $table()->select('meta->a as a')->first()->a)->toBe(7);
+    });
+});
+
+it('updates a number at a json path', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => '{"a":1,"b":{"c":2},"f":1.5,"on":1}', 'views' => 1]);
+
+        $table()->where('id', 1)->update(['meta->a' => 5, 'meta->b->c' => 6, 'meta->f' => 2.5, 'meta->on' => false, 'views' => 9]);
+
+        $meta = json_decode($table()->where('id', 1)->value('meta'), true);
+
+        expect($meta)->toBe(['a' => 5, 'b' => ['c' => 6], 'f' => 2.5, 'on' => 0])
+            ->and((int) $table()->where('id', 1)->value('views'))->toBe(9);
+    });
+});
+
+it('fails loudly on what the server cannot do with json', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => '{"a":1,"l":[1]}', 'views' => 1]);
+
+        expect(fn () => $table()->where('id', 1)->update(['meta->a' => 'text']))->toThrow(QueryException::class)
+            ->and(fn () => $table()->where('id', 1)->update(['meta->new' => 1]))->toThrow(QueryException::class)
+            ->and(fn () => $table()->whereJsonContains('meta->l', 1)->get())->toThrow(QueryException::class)
+            ->and(fn () => $table()->whereJsonLength('meta->l', 1)->get())->toThrow(QueryException::class);
+    });
+});
+
+it('leaves the query as it was after running knn() by uuid', function () {
+    withUuidTable(function () {
+        [$source] = seedUuidNeighbours();
+
+        $query = DB::connection('manticore')->table('it_uuid_articles_rt')->knn('embedding', $source, k: 10);
+
+        $sql = $query->toSql();
+        $wheres = $query->wheres;
+
+        $first = $query->get();
+        $query->cursor()->all();
+
+        expect($query->toSql())->toBe($sql)
+            ->and($query->wheres)->toBe($wheres)
+            ->and($query->getBindings())->toBe([])
+            ->and($query->get()->pluck('id')->all())->toBe($first->pluck('id')->all());
+    });
+});
+
+it('reads the vector again each time knn() by uuid runs, so it sees a change', function () {
+    withUuidTable(function () {
+        [$source] = seedUuidNeighbours();
+
+        $connection = DB::connection('manticore');
+        $query = $connection->table('it_uuid_articles_rt')->knn('embedding', $source, k: 10);
+
+        $connection->flushQueryLog();
+        $connection->enableQueryLog();
+
+        $query->get();
+        $query->get();
+
+        $reads = array_filter($connection->getQueryLog(), fn ($q) => str_contains($q['query'], 'limit 1'));
+
+        expect($reads)->toHaveCount(2);
+    });
+});
+
+it('partially replaces a uuid document through a table prefix', function () {
+    withUuidTable(function () {
+        config(['database.connections.manticore_prefixed' => ['prefix' => 'it_uuid_'] + config('database.connections.manticore')]);
+
+        $uuid = '550e8400-e29b-41d4-a716-446655440000';
+        $table = fn () => DB::connection('manticore_prefixed')->table('articles_rt');
+
+        $table()->insert(['id' => $uuid, 'title' => 'old']);
+        $table()->replaceWhereId($uuid, ['title' => 'new']);
+
+        expect($table()->where('id', $uuid)->value('title'))->toBe('new');
+    });
+});
+
+it('keeps empty values through the partial replace of a uuid document', function () {
+    withUuidTable(function () {
+        $uuid = '550e8400-e29b-41d4-a716-446655440000';
+        $table = fn () => DB::connection('manticore')->table('it_uuid_articles_rt');
+
+        $table()->insert(['id' => $uuid, 'title' => 'old']);
+        $table()->replaceWhereId($uuid, ['title' => 'new']);
+
+        expect($table()->where('id', $uuid)->first()->title)->toBe('new');
+    });
+});
+
+it('refuses invalid json, which INSERT would store as nothing', function () {
+    withJsonTable(function (Closure $table) {
+        expect(fn () => $table()->insert(['id' => 1, 'meta' => 'not json']))
+            ->toThrow(InvalidArgumentException::class, 'Column [meta]')
+            ->and(fn () => $table()->where('id', 1)->update(['meta' => 'not json']))
+            ->toThrow(InvalidArgumentException::class, 'Column [meta]');
+
+        $table()->insert(['id' => 2, 'meta' => '{"a":1}']);
+        $table()->insert(['id' => 3, 'meta' => '']);
+
+        expect($table()->count())->toBe(2);
+    });
+});
+
+it('takes the JSON literal null, which decodes to nothing without being invalid', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => 'null']);
+
+        expect($table()->count())->toBe(1);
+    });
 });

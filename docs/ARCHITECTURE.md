@@ -54,7 +54,17 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 | Vector search | — | `knn(col, k, (vector) [, ef])` predicate via `knn()` (floats inlined) |
 | Highlighting | — | `HIGHLIGHT([opts][, field])` select column via `highlight()` |
 | Tuning | — | `OPTION k=v, …` clause (with automatic `max_matches` on deep paging) |
-| Facets | — | `FACET field` clause |
+| No `LIMIT` | every row | 20 rows, so the grammar asks for all of them |
+| Value types | converted | strict, so the builder sends each value in its column's type, read with `DESC` |
+| `NULL` | a value | only on JSON, so null filters and writes use the empty value of the type |
+| JSON path | `json_extract(...)` | `meta.a.b` |
+| `DISTINCT` | a keyword | `GROUP BY` |
+| Upsert | `ON DUPLICATE KEY` | `REPLACE INTO`, when keyed by id and writing every column |
+| `UPDATE`/`DELETE` | `WHERE` optional | `WHERE` required, so one matching everything is added |
+| Qualified names | `` `table`.`column` `` | `table.column`, and bare for the query's own table |
+| Join rows | `column` | `table.column` for the joined table, which the processor renames |
+| Sub-select | `(select ...) as alias` | `(select ...)`, with `*`, order and limit outside |
+| Facets | — | `FACET field` clause, read with `getWithFacets()` |
 | Full-doc write | optional `REPLACE` | `REPLACE INTO` exposed via `replace()` |
 | Partial write | — | `REPLACE INTO … SET … WHERE id` via `replaceWhereId()` |
 | Document ids | any primary key | positive integers, or UUIDs on a table declared with `$table->uuid('id')` |
@@ -68,15 +78,16 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 Reads (`find`, `firstOrFail`, `value`, `exists`, `latest/oldest`, `count/sum/avg/min/max`
 aggregates, `cursor/lazy/chunk`, local/global scopes), two-way casts, mutators/accessors,
 `$appends`, events/observers, mass assignment (`fillable`/`guarded`), pagination and eager
-loading. Two things need a conversion: `fromDateTime()` and `prepareBindings()` send dates as Unix
-integers, and the grammar takes the query's own table out of filters and updated columns.
+loading. A few things need a conversion: `fromDateTime()` and `prepareBindings()` send dates as
+Unix integers, the grammar takes the query's own table out of filters and updated columns, and a
+date without a value reads as `null`. [Compatibility](compatibility.md) has the whole picture.
 
 ## Known limitations
 
-- No ACID transactions / locks.
+- Transactions cover inserts, replaces and deletes on one table. There are no row locks.
 - `UPDATE` only changes attributes; use `replace()` to rewrite a full document.
-- JOINs across indexes are limited in Manticore — prefer denormalized indexes.
-- Relations that need a join or a subquery do not work. See [Known limits](known-limits.md).
+- Joins are `INNER` or `LEFT`, one per query, and sub-selects only exist in `FROM`, so `whereHas()`
+  and `withCount()` do not work. See [Compatibility](compatibility.md).
 - `replaceWhereId()` and `knn()` by document id go through Manticore Buddy, which only takes
   numeric ids, so the builder handles UUIDs itself. `replaceWhereId()` tries the native
   statement, then falls back to read, merge and full `REPLACE`, which is not atomic. `knn()`

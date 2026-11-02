@@ -48,21 +48,28 @@ To use UUIDs as document ids, declare the id with `$table->uuid('id')`. See
 
 | Laravel | Manticore |
 |---|---|
-| `string`, `char` | `string` |
-| `text` | `text` |
-| `integer`, `tinyInteger`, `smallInteger`, `mediumInteger` | `integer` |
-| `bigInteger` | `bigint` |
+| `string`, `char`, `ulid`, `enum`, `set`, `ipAddress`, `macAddress`, `time`, `timeTz` | `string` |
+| `text`, `tinyText`, `mediumText`, `longText` | `text` |
+| `integer`, `tinyInteger`, `smallInteger`, `mediumInteger`, `year`, and their unsigned forms | `integer` |
+| `bigInteger`, `unsignedBigInteger`, `foreignId` | `bigint` |
 | `float`, `double`, `decimal` | `float` |
 | `boolean` | `bool` |
 | `json`, `jsonb` | `json` |
-| `timestamp`, `dateTime`, `date` | `timestamp` |
+| `timestamp`, `timestampTz`, `dateTime`, `dateTimeTz`, `date`, `softDeletes` | `timestamp` |
 | `mva` | `multi` |
 | `mva64` | `multi64` |
 | `floatVector` | `float_vector` |
 | `uuid` (only on `id`) | `uuid` |
 
 A `timestamp` column holds a Unix integer. See [Known limits](known-limits.md) for what that
-means when you write one.
+means when you write one. A type with no equivalent, such as `binary`, throws a `LogicException`
+naming the column. Manticore's [`float` is 32-bit](https://manual.manticoresearch.com/Creating_a_table/Data_types),
+so `double` and `decimal` lose precision. For exact values the manual recommends scaled integers in a
+`bigint`.
+
+[`ALTER`](https://manual.manticoresearch.com/Updating_table_schema_and_settings) adds and drops columns,
+renames tables with `Schema::rename()`, and widens `integer` to `bigInteger` with `change()`. Any other
+`change()` throws a `LogicException`, and `renameColumn()` fails with the server's error.
 
 Text columns accept `->indexed()`/`->stored()`, and tables accept `minInfixLen()`,
 `morphology()` and the generic `manticoreOptions([...])`.

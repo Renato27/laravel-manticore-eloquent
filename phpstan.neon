@@ -1,0 +1,27 @@
+parameters:
+    level: 5
+    paths:
+        - src
+    ignoreErrors:
+        # Fluent columns and Blueprint macros are dynamic, as are the connection and grammar the
+        # builder receives through Laravel's interfaces.
+        - identifier: property.notFound
+          path: src/Database/Schema/ManticoreSchemaGrammar.php
+        - identifier: method.notFound
+          path: src/Database/Query/ManticoreQueryBuilder.php
+        - identifier: method.notFound
+          path: src/ManticoreEloquentServiceProvider.php
+        # Only MySqlConnection's docblocks claim MySQL's schema classes.
+        - identifier: method.childReturnType
+          path: src/Database/ManticoreConnection.php
+        # Blueprint skips a command that compiles to null, which the docblocks leave out.
+        - identifier: method.childReturnType
+          path: src/Database/Schema/ManticoreSchemaGrammar.php
+        # Model's constructor is not final, and Eloquent itself relies on new static.
+        - identifier: new.static
+          path: src/Concerns/HasManticore.php
+        # Older Laravel versions hand the grammar no connection.
+        - identifier: nullsafe.neverNull
+          path: src/Database/Schema/ManticoreSchemaGrammar.php
+        - identifier: nullCoalesce.property
+          path: src/Database/Schema/ManticoreSchemaGrammar.php
