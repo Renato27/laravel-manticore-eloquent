@@ -138,3 +138,26 @@ it('supports SoftDeletes end to end', function () {
 
     expect(SoftPost::withTrashed()->find(1))->toBeNull();
 });
+
+enum NullableStatus: string
+{
+    case On = 'on';
+}
+
+it('reads an empty enum and an empty encrypted value as null on a model', function () {
+    config(['app.key' => 'base64:'.base64_encode(str_repeat('a', 32))]);
+
+    $model = new class extends NullablePost
+    {
+        protected $casts = ['slug' => NullableStatus::class, 'title' => 'encrypted'];
+    };
+
+    nullTable()->insert(['id' => 3, 'views' => 1]);
+
+    expect($model->find(3)->slug)->toBeNull()
+        ->and($model->find(3)->title)->toBeNull();
+
+    $model->find(3)->fill(['slug' => NullableStatus::On])->save();
+
+    expect($model->find(3)->slug)->toBe(NullableStatus::On);
+});

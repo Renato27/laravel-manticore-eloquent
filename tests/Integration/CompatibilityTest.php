@@ -1,7 +1,12 @@
 <?php
 
+use Illuminate\Database\Eloquent\Casts\AsStringable;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Concerns\HasUlids;
+use Illuminate\Database\Eloquent\MassPrunable;
+use Illuminate\Database\Eloquent\Prunable;
 use Illuminate\Database\Query\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -217,3 +222,114 @@ it('runs the other ordering, grouping and iterating methods of the Laravel docs'
         ->and(compatTable()->where('id', 1)->toRawSql())->toContain('`id` = 1')
         ->and(compatTable()->where('slug', 'a')->toRawSql())->toContain("`slug` = 'a'");
 });
+
+it('runs the model methods of the Laravel docs', function () {
+    $document = CompatibleDocument::find(1);
+
+    expect(CompatibleDocument::firstOrNew(['id' => 1])->exists)->toBeTrue()
+        ->and(CompatibleDocument::firstOrNew(['id' => 9])->exists)->toBeFalse()
+        ->and(CompatibleDocument::where('id', 9)->firstOr(fn () => 'none'))->toBe('none')
+        ->and(CompatibleDocument::findOr(9, fn () => 'none'))->toBe('none')
+        ->and(CompatibleDocument::firstWhere('views', 20)->id)->toBe(2)
+        ->and($document->is(CompatibleDocument::find(1)))->toBeTrue()
+        ->and($document->isNot(CompatibleDocument::find(2)))->toBeTrue()
+        ->and($document->refresh()->id)->toBe(1);
+
+    $document->views = 11;
+
+    expect($document->isDirty('views'))->toBeTrue()
+        ->and($document->isClean('slug'))->toBeTrue()
+        ->and($document->getOriginal('views'))->toBe(10)
+        ->and($document->saveOrFail())->toBeTrue()
+        ->and($document->wasChanged('views'))->toBeTrue()
+        ->and($document->getChanges())->toHaveKey('views', 11)
+        ->and($document->updateOrFail(['views' => 12]))->toBeTrue()
+        ->and(CompatibleDocument::find(1)->views)->toBe(12);
+
+    $document->views = 13;
+
+    expect($document->saveQuietly())->toBeTrue()
+        ->and(CompatibleDocument::$saved)->toBe([1, 2, 3, 1, 1])
+        ->and(CompatibleDocument::find(3)->deleteOrFail())->toBeTrue()
+        ->and(CompatibleDocument::find(2)->deleteQuietly())->toBeTrue()
+        ->and(CompatibleDocument::count())->toBe(1);
+});
+
+it('prunes with Prunable, and not with MassPrunable, which deletes with a limit', function () {
+    $prunable = new class extends CompatibleDocument
+    {
+        use Prunable;
+
+        public function prunable()
+        {
+            return self::where('id', 1);
+        }
+    };
+
+    $massPrunable = new class extends CompatibleDocument
+    {
+        use MassPrunable;
+
+        public function prunable()
+        {
+            return self::where('id', 2);
+        }
+    };
+
+    expect($prunable->pruneAll())->toBe(1)
+        ->and(CompatibleDocument::find(1))->toBeNull()
+        ->and(fn () => $massPrunable->pruneAll())->toThrow(QueryException::class);
+});
+
+it('reads back the casts of the Laravel docs', function () {
+    Schema::connection('manticore')->table('compat_docs', function (Blueprint $table) {
+        $table->json('options');
+        $table->timestamp('seen_at');
+        $table->float('price');
+    });
+
+    $model = new class extends CompatibleDocument
+    {
+        protected $casts = [
+            'options' => 'array',
+            'seen_at' => 'datetime:Y-m-d',
+            'price' => 'decimal:2',
+            'published' => 'boolean',
+            'slug' => AsStringable::class,
+        ];
+    };
+
+    $model->create(['id' => 7, 'options' => ['a' => 1], 'seen_at' => '2026-03-01 10:00:00', 'price' => '1.5', 'published' => '1', 'slug' => 'x', 'title' => 't', 'views' => '3']);
+
+    $found = $model->find(7);
+
+    expect($found->options)->toBe(['a' => 1])
+        ->and($found->seen_at->format('Y-m-d H:i'))->toBe('2026-03-01 10:00')
+        ->and($found->toArray()['seen_at'])->toBe('2026-03-01')
+        ->and($found->price)->toBe('1.50')
+        ->and($found->published)->toBeTrue()
+        ->and((string) $found->slug)->toBe('x')
+        ->and($found->views)->toBe(3);
+
+    $found->options = ['a' => 2];
+    $found->published = false;
+    $found->price = 2.25;
+    $found->save();
+
+    $saved = $model->find(7);
+
+    expect($saved->options)->toBe(['a' => 2])
+        ->and($saved->published)->toBeFalse()
+        ->and($saved->price)->toBe('2.25')
+        ->and($model->find(1)->options)->toBeNull()
+        ->and($model->find(1)->seen_at)->toBeNull();
+});
+
+it('refuses a ULID key on a table with numeric ids', function () {
+    $model = new class extends CompatibleDocument
+    {
+        use HasUlids;
+    };
+
+    $model->create(['title' => 'x', 'views' => 1, 'slug' => 'x', 'published' => 1]);
+})->throws(InvalidArgumentException::class, 'Column [id]');

@@ -1021,3 +1021,24 @@ it('leaves a plain Laravel builder using this grammar as Laravel writes it', fun
 
     expect($query->whereNull('a')->toSql())->toBe('select * from `docs` where `a` is null');
 });
+
+it('ignores an empty or star field in match()', function () {
+    expect(manticoreQuery()->match('a', '')->getBindings())->toBe(['a'])
+        ->and(manticoreQuery()->match('a', '*')->getBindings())->toBe(['a']);
+});
+
+it('leaves a distinct() of a star for the server to reject', function () {
+    expect(manticoreQuery('docs')->select('*')->distinct()->toSql())->toBe(unlimited('select distinct * from `docs`'));
+});
+
+it('refuses what cannot go in a numeric column before reaching the server', function (string $column, mixed $value) {
+    expect(fn () => typedQuery()->where('id', 1)->update([$column => $value]))
+        ->toThrow(InvalidArgumentException::class, "Column [{$column}]");
+})->with([
+    ['views', 'abc'],
+    ['id', '01KQZX'],
+    ['score', 'abc'],
+    ['on', 'yes'],
+    ['seen_at', 'not a date'],
+    ['meta', 'not json'],
+]);

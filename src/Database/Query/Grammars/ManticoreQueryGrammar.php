@@ -437,6 +437,17 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
+     * The server does not have <=>, and there is no NULL to make it differ from =.
+     *
+     * @param  array  $where
+     * @return string
+     */
+    protected function whereNullSafeEquals(Builder $query, $where)
+    {
+        return $this->wrap($where['column']).' = '.$this->parameter($where['value']);
+    }
+
+    /**
      * The opposite of whereNull().
      *
      * @param  array  $where

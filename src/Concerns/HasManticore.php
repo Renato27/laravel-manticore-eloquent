@@ -42,7 +42,8 @@ trait HasManticore
     }
 
     /**
-     * A document without a date holds 0, which is what null means on Manticore, and not 1970.
+     * A document without a value holds its type's empty value, which is what null means on Manticore.
+     * A date would read it as 1970, and an enum or an encrypted value could not read it at all.
      *
      * @param  array|object  $attributes
      * @param  string|null  $connection
@@ -54,12 +55,24 @@ trait HasManticore
 
         if ($this->getConnection() instanceof ManticoreConnection) {
             foreach ($attributes as $key => $value) {
-                if (in_array($value, [0, '0'], true) && $this->isDateAttribute($key)) {
+                if ($this->holdsNoValue($key, $value)) {
                     $attributes[$key] = null;
                 }
             }
         }
 
         return parent::newFromBuilder($attributes, $connection);
+    }
+
+    /**
+     * Whether a value read from Manticore means there is none for this attribute.
+     */
+    protected function holdsNoValue(string $key, mixed $value): bool
+    {
+        if (in_array($value, [0, '0'], true)) {
+            return $this->isDateAttribute($key) || $this->isDateCastableWithCustomFormat($key);
+        }
+
+        return $value === '' && ($this->isEnumCastable($key) || $this->isEncryptedCastable($key));
     }
 }

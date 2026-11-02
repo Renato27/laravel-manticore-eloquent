@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\Pivot;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -100,6 +101,11 @@ class RelComment extends ManticoreModel
     {
         return $this->morphTo();
     }
+}
+
+class RelPivot extends Pivot
+{
+    public $timestamps = false;
 }
 
 class RelTag extends ManticoreModel
@@ -322,11 +328,22 @@ it('still loads relational models from a Manticore parent', function () {
     expect(RelPost::find(1)->reviews->modelKeys())->toBe([1]);
 });
 
-it('limit: whereHas() and withCount() need a subquery in a place the server does not take one', function (Closure $query) {
+it('limit: what Laravel writes with a subquery outside FROM fails with an error', function (Closure $query) {
     expect($query)->toThrow(QueryException::class);
 })->with([
     'whereHas' => [fn () => RelPost::whereHas('notes')->get()],
+    'has' => [fn () => RelPost::has('notes')->get()],
+    'doesntHave' => [fn () => RelPost::doesntHave('notes')->get()],
+    'whereRelation' => [fn () => RelPost::whereRelation('notes', 'post_id', 1)->get()],
+    'withWhereHas' => [fn () => RelPost::withWhereHas('notes')->get()],
     'withCount' => [fn () => RelPost::withCount('notes')->get()],
+    'withSum' => [fn () => RelPost::withSum('notes', 'post_id')->get()],
+    'withExists' => [fn () => RelPost::withExists('notes')->get()],
+    'loadCount' => [fn () => RelPost::find(1)->loadCount('notes')],
+    'addSelect with a query' => [fn () => RelPost::addSelect(['n' => RelNote::select('body')->limit(1)])->get()],
+    'orderBy with a query' => [fn () => RelPost::orderByDesc(RelNote::select('post_id')->limit(1))->get()],
+    'latestOfMany' => [fn () => RelPost::find(1)->notes()->one()->latestOfMany()->first()],
+    'whereAttachedTo' => [fn () => RelPost::whereAttachedTo(new RelTag(['id' => 1]), 'tags')->get()],
 ]);
 
 it('limit: match() on a relation collides with the one Eloquent has', function () {
@@ -459,4 +476,87 @@ it('loads hasManyThrough and hasOneThrough', function () {
     expect(RelPost::with('noteComments')->find(2)->noteComments->modelKeys())->toBe([102])
         ->and(RelPost::find(2)->firstNoteComment->id)->toBe(102)
         ->and(RelPost::find(1)->noteComments()->count())->toBe(2);
+});
+
+function docsPost(): RelPost
+{
+    return RelPost::find(1);
+}
+
+it('filters through the pivot in every way the Laravel docs list', function () {
+    seedTags();
+
+    $relation = fn () => docsPost()->taggedWithPivot();
+
+    expect($relation()->wherePivotBetween('weight', [6, 10])->get()->modelKeys())->toBe([2])
+        ->and($relation()->wherePivotNotBetween('weight', [6, 10])->get()->modelKeys())->toBe([1])
+        ->and($relation()->wherePivotNotIn('tag_id', [1])->get()->modelKeys())->toBe([2])
+        ->and($relation()->wherePivotNull('weight')->get())->toHaveCount(0)
+        ->and($relation()->wherePivotNotNull('weight')->count())->toBe(2)
+        ->and($relation()->orderByPivot('weight', 'desc')->first()->id)->toBe(2);
+});
+
+it('eager loads in every way the Laravel docs list', function () {
+    expect(RelPost::with(['notes' => fn ($q) => $q->where('post_id', 1)->orderBy('id', 'desc')])->find(1)->notes->first()->id)->toBe(11)
+        ->and(array_keys(RelNote::with('post:id,author_id')->find(10)->post->getAttributes()))->toBe(['id', 'author_id'])
+        ->and(RelNote::with('post:id,title')->find(10)->post->title)->toBe('first')
+        ->and(RelPost::withOnly('notes')->find(1)->relationLoaded('notes'))->toBeTrue()
+        ->and(RelPost::find(1)->load('notes')->notes)->toHaveCount(2)
+        ->and(RelPost::find(1)->loadMissing('notes')->notes)->toHaveCount(2)
+        ->and(RelPost::orderBy('id')->get()->load('notes')->first()->relationLoaded('notes'))->toBeTrue();
+});
+
+it('writes through a relation in every way the Laravel docs list', function () {
+    $post = docsPost();
+
+    expect($post->notes()->save(new RelNote(['id' => 20, 'body' => 'x']))->post_id)->toBe(1)
+        ->and($post->notes()->saveMany([new RelNote(['id' => 21, 'body' => 'x'])]))->toHaveCount(1)
+        ->and($post->notes()->create(['id' => 22, 'body' => 'x'])->post_id)->toBe(1)
+        ->and($post->notes()->createMany([['id' => 23, 'body' => 'x']]))->toHaveCount(1)
+        ->and($post->notes()->firstOrCreate(['id' => 24], ['body' => 'x'])->post_id)->toBe(1)
+        ->and(RelNote::find(20)->post->id)->toBe(1);
+
+    $note = RelNote::find(20);
+    $note->post()->associate(RelPost::find(2));
+    $note->save();
+
+    expect(RelNote::find(20)->post_id)->toBe(2);
+
+    $note->post()->dissociate();
+    $note->save();
+
+    expect(RelNote::find(20)->post_id)->toBe(0)
+        ->and(RelNote::find(20)->post)->toBeNull();
+});
+
+it('syncs a pivot in every way the Laravel docs list', function () {
+    seedTags();
+
+    $tags = fn () => RelPost::find(2)->taggedWithPivot();
+
+    $tags()->syncWithPivotValues([1, 2], ['weight' => 4]);
+    expect($tags()->wherePivot('weight', 4)->count())->toBe(2);
+
+    $tags()->syncWithoutDetaching([3]);
+    expect($tags()->count())->toBe(3);
+
+    $tags()->toggle([3]);
+    expect($tags()->count())->toBe(2);
+});
+
+it('reads a pivot with a custom name and a custom model', function () {
+    seedTags();
+
+    $post = docsPost();
+
+    expect((int) $post->belongsToMany(RelTag::class, 'rel_post_tag', 'post_id', 'tag_id')->as('link')->withPivot('weight')->first()->link->weight)->toBeGreaterThan(0)
+        ->and($post->belongsToMany(RelTag::class, 'rel_post_tag', 'post_id', 'tag_id')->using(RelPivot::class)->first()->pivot)->toBeInstanceOf(RelPivot::class);
+});
+
+it('runs whereMorphedTo and whereNotMorphedTo', function () {
+    RelComment::create(['id' => 1, 'body' => 'x', 'commentable_type' => RelPost::class, 'commentable_id' => 1]);
+    RelComment::create(['id' => 2, 'body' => 'x', 'commentable_type' => RelPost::class, 'commentable_id' => 2]);
+
+    expect(RelComment::whereMorphedTo('commentable', RelPost::find(1))->pluck('id')->all())->toBe([1])
+        ->and(RelComment::whereNotMorphedTo('commentable', RelPost::find(1))->pluck('id')->all())->toBe([2]);
 });

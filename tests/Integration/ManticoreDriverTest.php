@@ -931,3 +931,17 @@ it('keeps empty values through the partial replace of a uuid document', function
         expect($table()->where('id', $uuid)->first()->title)->toBe('new');
     });
 });
+
+it('refuses invalid json, which INSERT would store as nothing', function () {
+    withJsonTable(function (Closure $table) {
+        expect(fn () => $table()->insert(['id' => 1, 'meta' => 'not json']))
+            ->toThrow(InvalidArgumentException::class, 'Column [meta]')
+            ->and(fn () => $table()->where('id', 1)->update(['meta' => 'not json']))
+            ->toThrow(InvalidArgumentException::class, 'Column [meta]');
+
+        $table()->insert(['id' => 2, 'meta' => '{"a":1}']);
+        $table()->insert(['id' => 3, 'meta' => '']);
+
+        expect($table()->count())->toBe(2);
+    });
+});

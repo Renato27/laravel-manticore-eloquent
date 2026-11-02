@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\QueryException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -70,6 +71,7 @@ it('rejects this SQL', function (string $sql) {
     'UNION' => 'SELECT id FROM limits_a UNION SELECT id FROM limits_a',
     'LIKE, which the manual does not list among the operators of WHERE' => "SELECT id FROM limits_a WHERE name LIKE 'al%'",
     'SELECT DISTINCT' => 'SELECT DISTINCT name FROM limits_a',
+    '<=>, which the manual does not list among the operators' => 'SELECT id FROM limits_a WHERE n <=> 1',
     'FOR UPDATE' => 'SELECT id FROM limits_a WHERE id = 1 FOR UPDATE',
     'LOCK IN SHARE MODE' => 'SELECT id FROM limits_a WHERE id = 1 LOCK IN SHARE MODE',
 
@@ -149,6 +151,32 @@ it('ignores these writes without an error, which the driver works around', funct
         ->and($row->f)->toBe(1.5)
         ->and($row->name)->toBe('alpha');
 });
+
+it('stores what cannot go in a numeric column without an error, which the driver refuses', function () {
+    $db = DB::connection('manticore');
+
+    $db->statement("INSERT INTO limits_a (id, n) VALUES (3, 'abc')");
+    $db->statement("INSERT INTO limits_a (id, n) VALUES ('7abc', 1)");
+    $db->statement('UPDATE limits_a SET n = 1.7 WHERE id = 1');
+    $db->statement("INSERT INTO limits_a (id, j) VALUES (4, 'not json')");
+
+    expect($db->selectOne('SELECT n FROM limits_a WHERE id = 3')->n)->toBe(0)
+        ->and($db->select('SELECT id FROM limits_a WHERE id = 7'))->toHaveCount(1)
+        ->and($db->selectOne('SELECT n FROM limits_a WHERE id = 1')->n)->toBe(1071225242)
+        ->and($db->selectOne('SELECT j FROM limits_a WHERE id = 4')->j)->toBeNull();
+});
+
+it('trims out-of-range numbers, as the manual says', function () {
+    // https://manual.manticoresearch.com/Data_creation_and_modification/Updating_documents/UPDATE
+    $db = DB::connection('manticore');
+    $db->statement('INSERT INTO limits_a (id, n) VALUES (3, -1)');
+
+    expect($db->selectOne('SELECT n FROM limits_a WHERE id = 3')->n)->toBe(4294967295);
+});
+
+it('reports a duplicate id with an error of its own, not the 1062 of MySQL', function () {
+    DB::connection('manticore')->statement('INSERT INTO limits_a (id, n) VALUES (1, 1)');
+})->throws(UniqueConstraintViolationException::class, 'duplicate id');
 
 it('orders at random with RAND(), which Laravel writes', function () {
     expect(DB::connection('manticore')->select('SELECT id FROM limits_a ORDER BY RAND()'))->toHaveCount(2);

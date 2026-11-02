@@ -200,3 +200,39 @@ it('leaves a table list and a prefix to the server', function () {
 
     expect(DB::connection('manticore_prefixed')->table('docs')->where('views', '10')->pluck('id')->all())->toBe([1]);
 });
+
+it('rounds a decimal written to an integer column, which UPDATE would store as garbage', function () {
+    typedTable()->where('id', 1)->update(['views' => 1.7, 'total' => '2.4']);
+
+    expect((int) typedTable()->where('id', 1)->value('views'))->toBe(2)
+        ->and((int) typedTable()->where('id', 1)->value('total'))->toBe(2);
+
+    typedTable()->insert(['id' => 3, 'views' => 3.6]);
+
+    expect((int) typedTable()->where('id', 3)->value('views'))->toBe(4);
+});
+
+it('refuses a word written to a numeric column, which the server would store as 0 or skip', function (string $column, string $value) {
+    expect(fn () => typedTable()->insert(['id' => 3, $column => $value]))
+        ->toThrow(InvalidArgumentException::class, "Column [{$column}]")
+        ->and(fn () => typedTable()->where('id', 1)->update([$column => $value]))
+        ->toThrow(InvalidArgumentException::class, "Column [{$column}]")
+        ->and(typedTable()->count())->toBe(2);
+})->with([
+    'an integer' => ['views', 'abc'],
+    'a bigint' => ['total', 'abc'],
+    'a float' => ['score', 'abc'],
+    'a bool' => ['published', 'abc'],
+    'a timestamp' => ['seen_at', 'not a date'],
+    'an oversized number' => ['total', '99999999999999999999'],
+]);
+
+it('refuses an id the server would read as another number, or replace by a generated one', function (string $id) {
+    typedTable()->insert(['id' => $id, 'views' => 1]);
+})->with(['01KQZX', 'abc'])->throws(InvalidArgumentException::class, 'Column [id]');
+
+it('keeps a word in a string, a text and a json column', function () {
+    typedTable()->insert(['id' => 3, 'slug' => 'abc']);
+
+    expect(typedTable()->where('id', 3)->value('slug'))->toBe('abc');
+});

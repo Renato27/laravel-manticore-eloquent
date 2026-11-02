@@ -10,6 +10,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use LogicException;
 use RuntimeException;
 
@@ -89,6 +90,11 @@ class ManticoreQueryBuilder extends Builder
 
             if ($this->invalidOperator($operator)) {
                 [$value, $operator] = [$operator, '='];
+            }
+
+            // There is no NULL to make <=> differ from =, and the server does not have it.
+            if ($operator === '<=>') {
+                $operator = '=';
             }
 
             $value = $this->castToColumn($column, $value);
@@ -285,11 +291,46 @@ class ManticoreQueryBuilder extends Builder
             } elseif (is_array($value) || (is_string($value) && $this->isListColumn($column))) {
                 $row[$column] = $this->isListColumn($column) ? $this->formatTuple($value, $this->columnType($column)) : $value;
             } else {
-                $row[$column] = $this->castToColumn($column, $value);
+                $row[$column] = $this->castForWrite($column, $value);
             }
         }
 
         return $row;
+    }
+
+    /**
+     * Put a value in the type of its column for writing, where Manticore does not report what it
+     * cannot store: a decimal goes in an integer column as garbage on UPDATE, a word goes in a
+     * numeric column as 0 or is skipped, an id with a word becomes another number, and invalid JSON
+     * is stored as nothing. ServerLimitsTest shows each case. A decimal rounds, as in MySQL, and
+     * the rest is refused.
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function castForWrite(string $column, mixed $value): mixed
+    {
+        $type = $this->columnType($column);
+
+        if (in_array($type, ['uint', 'bigint', 'bool', 'timestamp'], true)
+            && is_numeric($value)
+            && filter_var($value, FILTER_VALIDATE_INT) === false
+            && abs((float) $value) < PHP_INT_MAX) {
+            $value = (int) round((float) $value);
+        }
+
+        $value = $this->castToColumn($column, $value);
+
+        $isInvalid = is_string($value) && match ($type) {
+            'uint', 'bigint', 'float', 'bool', 'timestamp' => true,
+            'json' => $value !== '' && json_decode($value) === null && json_last_error() !== JSON_ERROR_NONE,
+            default => false,
+        };
+
+        if ($isInvalid) {
+            throw new InvalidArgumentException("Column [{$column}] is of type {$type}, so it cannot store [{$value}].");
+        }
+
+        return $value;
     }
 
     /**
@@ -519,7 +560,7 @@ class ManticoreQueryBuilder extends Builder
      *
      * @param  array<string, mixed>  $values
      *
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     public function replaceWhereId(int|string $id, array $values): bool
     {

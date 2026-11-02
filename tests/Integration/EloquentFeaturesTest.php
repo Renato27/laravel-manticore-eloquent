@@ -3,6 +3,7 @@
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use ManticoreEloquent\Eloquent\ManticoreModel;
@@ -293,4 +294,28 @@ it('counts a grouped page past a limit and an offset of its own', function () {
     $page = featureTable()->selectRaw('slug, count(*) as c')->groupBy('slug')->orderBy('slug')->limit(1)->offset(1)->paginate(5);
 
     expect($page->total())->toBe(2);
+});
+
+it('finds the document createOrFirst() could not create', function () {
+    $found = FeaturePost::createOrFirst(['id' => 1], ['title' => 'ignored', 'views' => 0, 'slug' => 'z']);
+
+    expect($found->wasRecentlyCreated)->toBeFalse()
+        ->and($found->views)->toBe(10)
+        ->and(FeaturePost::createOrFirst(['id' => 9], ['title' => 'new', 'views' => 5, 'slug' => 'n'])->wasRecentlyCreated)->toBeTrue();
+});
+
+it('keeps a duplicate id an error on create()', function () {
+    FeaturePost::create(['id' => 1, 'title' => 'x', 'views' => 0, 'slug' => 'z']);
+})->throws(UniqueConstraintViolationException::class);
+
+it('compares with <=> as an equality, since there is no NULL to make it differ', function () {
+    expect(featureTable()->where('views', '<=>', 10)->pluck('id')->all())->toBe([1]);
+
+    if (method_exists(featureTable(), 'whereNullSafeEquals')) {
+        expect(featureTable()->whereNullSafeEquals('views', 10)->pluck('id')->all())->toBe([1]);
+    }
+});
+
+it('selects a star and keeps a facet selection, as asked', function () {
+    expect(featureTable()->select('id')->facet('slug')->getWithFacets()['rows']->first())->not->toHaveProperty('title');
 });

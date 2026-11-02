@@ -3,6 +3,7 @@
 namespace ManticoreEloquent\Database;
 
 use DateTimeInterface;
+use Exception;
 use Illuminate\Database\MySqlConnection;
 use Illuminate\Database\QueryException;
 use ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar;
@@ -45,6 +46,17 @@ class ManticoreConnection extends MySqlConnection
         }
 
         return $this->columnTypes[$table] = array_column($columns, 'Type', 'Field');
+    }
+
+    /**
+     * Manticore reports a repeated id as a generic error and not as MySQL's 1062. Knowing it is what
+     * lets createOrFirst() and firstOrCreate() find the document that already exists.
+     *
+     * @return bool
+     */
+    protected function isUniqueConstraintError(Exception $exception)
+    {
+        return str_contains($exception->getMessage(), 'duplicate id');
     }
 
     /**
