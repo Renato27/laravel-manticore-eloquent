@@ -755,3 +755,32 @@ it('rejects the uuid type anywhere but the id column', function () {
         $table->text('title');
     }))->toThrow(QueryException::class, "can only be used for 'id'");
 });
+
+it('searches several indexes through searchableAs()', function () {
+    $schema = Schema::connection('manticore');
+
+    foreach (['it_multi_a', 'it_multi_b'] as $table) {
+        $schema->dropIfExists($table);
+        $schema->create($table, fn (Blueprint $blueprint) => $blueprint->text('title'));
+    }
+
+    try {
+        DB::connection('manticore')->table('it_multi_a')->insert(['id' => 1, 'title' => 'alpha']);
+        DB::connection('manticore')->table('it_multi_b')->insert(['id' => 2, 'title' => 'alpha']);
+
+        $model = new class extends Model {
+            use HasManticore;
+
+            public function searchableAs(): array
+            {
+                return ['it_multi_a', 'it_multi_b'];
+            }
+        };
+
+        expect($model::manticore()->getQuery()->match('alpha')->orderBy('id')->pluck('id')->all())->toBe([1, 2]);
+    } finally {
+        foreach (['it_multi_a', 'it_multi_b'] as $table) {
+            $schema->dropIfExists($table);
+        }
+    }
+});

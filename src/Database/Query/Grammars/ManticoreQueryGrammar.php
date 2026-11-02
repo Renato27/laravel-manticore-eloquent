@@ -19,6 +19,22 @@ class ManticoreQueryGrammar extends MySqlGrammar
     public const UNLIMITED = 2147483646;
 
     /**
+     * Wrap a table, or each of the indexes in a list such as searchableAs() can give.
+     *
+     * @param  mixed  $table
+     * @param  string|null  $prefix
+     * @return string
+     */
+    public function wrapTable($table, $prefix = null)
+    {
+        if (is_string($table) && str_contains($table, ',')) {
+            return implode(', ', array_map(fn ($index) => parent::wrapTable(trim($index), $prefix), explode(',', $table)));
+        }
+
+        return parent::wrapTable($table, $prefix);
+    }
+
+    /**
      * Full-text MATCH, bound as a parameter so the search terms stay injection-safe.
      *
      * @param  \Illuminate\Database\Query\Builder  $query

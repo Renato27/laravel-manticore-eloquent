@@ -745,3 +745,7 @@ it('leaves a delete by id without any extra filter', function () {
 
     expect((new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs')->delete(5))->toBe(1);
 });
+
+it('wraps each index of a table list', function () {
+    expect(manticoreQuery('a,b')->limit(1)->toSql())->toBe('select * from `a`, `b` limit 1');
+});
