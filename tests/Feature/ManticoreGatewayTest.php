@@ -169,3 +169,43 @@ it('binds a date as a Unix integer on the Manticore connection', function () {
     expect(DB::connection('manticore')->prepareBindings([$date, true, 'text', 5]))
         ->toBe([$date->getTimestamp(), 1, 'text', 5]);
 });
+
+it('compiles relation queries without the table qualifier', function () {
+    $post = new class extends ManticoreModel {
+        protected $table = 'posts';
+
+        public function notes()
+        {
+            return $this->hasMany(DefaultArticle::class, 'post_id');
+        }
+    };
+    $post->setAttribute('id', 1);
+
+    expect($post->notes()->toBase()->toSql())->toEndWith('where `post_id` = ?');
+});
+
+it('leaves qualifying the key to the framework', function () {
+    expect((new DefaultArticle)->getQualifiedKeyName())->toEndWith('.id');
+});
+
+it('opens the gateway on a ManticoreModel too', function () {
+    expect(DefaultArticle::manticore()->where('a', 1)->toBase()->toSql())
+        ->toEndWith('where `a` = ?');
+});
+
+it('writes Unix integers on any Manticore connection, whatever its name', function () {
+    config(['database.connections.manticore_two' => config('database.connections.manticore')]);
+
+    $model = (new DefaultArticle)->setConnection('manticore_two');
+
+    expect($model->fromDateTime('2026-01-02 03:04:05'))
+        ->toBe(Illuminate\Support\Carbon::parse('2026-01-02 03:04:05')->getTimestamp());
+});
+
+it('keeps the date format of a ManticoreModel moved to another kind of connection', function () {
+    config(['database.connections.other' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']]);
+
+    $model = (new DefaultArticle)->setConnection('other');
+
+    expect($model->fromDateTime('2026-01-02 03:04:05'))->toBe('2026-01-02 03:04:05');
+});

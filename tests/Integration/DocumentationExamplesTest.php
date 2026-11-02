@@ -72,17 +72,6 @@ class DocsStampedGatewayArticle extends Model
     protected $guarded = [];
 }
 
-class DocsNote extends ManticoreModel
-{
-    protected $table = 'docs_notes_rt';
-    public $timestamps = false;
-
-    public function post()
-    {
-        return $this->belongsTo(DocsArticle::class, 'post_id');
-    }
-}
-
 function docsSchema(): \Illuminate\Database\Schema\Builder
 {
     return Schema::connection('manticore');
@@ -100,7 +89,7 @@ beforeEach(function () {
         $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
     }
 
-    foreach (['docs_articles_rt', 'docs_companies_rt', 'docs_plain_rt', 'docs_stamped_rt', 'docs_notes_rt'] as $table) {
+    foreach (['docs_articles_rt', 'docs_companies_rt', 'docs_plain_rt', 'docs_stamped_rt'] as $table) {
         docsSchema()->dropIfExists($table);
     }
 
@@ -124,7 +113,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    foreach (['docs_articles_rt', 'docs_companies_rt', 'docs_plain_rt', 'docs_stamped_rt', 'docs_notes_rt'] as $table) {
+    foreach (['docs_articles_rt', 'docs_companies_rt', 'docs_plain_rt', 'docs_stamped_rt'] as $table) {
         try {
             docsSchema()->dropIfExists($table);
         } catch (\Throwable) {
@@ -377,16 +366,4 @@ it('limit: a document without a timestamp reads as 1970', function () {
     docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a']);
 
     expect(DocsTimestampedArticle::find(1)->created_at->year)->toBe(1970);
-});
-
-it('limit: a relation that queries Manticore fails with an error', function () {
-    docsSchema()->create('docs_notes_rt', function (Blueprint $table) {
-        $table->text('body');
-        $table->integer('post_id');
-    });
-    docsTable('docs_notes_rt')->insert(['id' => 1, 'body' => 'n', 'post_id' => 1]);
-    docsTable('docs_articles_rt')->insert(['id' => 1, 'title' => 'a', 'body' => 'b']);
-
-    expect(fn () => DocsNote::find(1)->post)->toThrow(QueryException::class);
-    expect(DocsNote::where('post_id', 1)->count())->toBe(1);
 });

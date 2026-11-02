@@ -525,3 +525,95 @@ it('keeps a json path intact when compiling updated columns', function () {
     expect($query->getGrammar()->compileUpdate($query, ['meta->a' => 1]))
         ->toContain('json_set(`meta`');
 });
+
+it('leaves its own table out of filters, since Manticore rejects qualified columns', function () {
+    $q = manticoreQuery('docs')
+        ->where('docs.tag', 'a')
+        ->whereIn('docs.views', [1, 2])
+        ->whereIntegerInRaw('docs.id', [3]);
+
+    expect($q->toSql())->toBe('select * from `docs` where `tag` = ? and `views` in (?, ?) and `id` in (3)');
+    expect($q->getBindings())->toBe(['a', 1, 2]);
+});
+
+it('leaves the table out inside nested filters', function () {
+    $q = manticoreQuery('docs')->where(fn ($query) => $query->where('docs.tag', 'a')->orWhere('docs.tag', 'b'));
+
+    expect($q->toSql())->toBe('select * from `docs` where (`tag` = ? or `tag` = ?)');
+});
+
+it('recognises an aliased table', function () {
+    expect(manticoreQuery('docs as d')->where('d.tag', 'a')->toSql())
+        ->toBe('select * from `docs` as `d` where `tag` = ?');
+});
+
+it('keeps a qualifier naming another table, which is an error worth seeing', function () {
+    expect(manticoreQuery('docs')->where('other.tag', 'a')->toSql())
+        ->toBe('select * from `docs` where `other`.`tag` = ?');
+});
+
+it('leaves a query with a join alone', function () {
+    expect(manticoreQuery('docs')->join('b', 'docs.id', '=', 'b.doc_id')->where('docs.tag', 'a')->whereNotNull('docs.x')->toSql())
+        ->toBe('select * from `docs` inner join `b` on `docs`.`id` = `b`.`doc_id` where `docs`.`tag` = ? and `docs`.`x` is not null');
+});
+
+it('drops the whereNotNull() a relation adds right after the same column = ?', function () {
+    expect(manticoreQuery('docs')->where('docs.post_id', 1)->whereNotNull('docs.post_id')->toSql())
+        ->toBe('select * from `docs` where `post_id` = ?');
+
+    expect(manticoreQuery('docs')->where('docs.post_id', 1)->whereNotNull('docs.post_id')->where('docs.a', 2)->toSql())
+        ->toBe('select * from `docs` where `post_id` = ? and `a` = ?');
+
+    expect(manticoreQuery('docs')->where('x', 1)->orWhere('docs.post_id', 1)->whereNotNull('docs.post_id')->toSql())
+        ->toBe('select * from `docs` where `x` = ? or `post_id` = ?');
+});
+
+it('keeps any other qualified whereNotNull(), since dropping it would change the results', function (Closure $build, string $where) {
+    expect($build(manticoreQuery('docs'))->toSql())->toBe('select * from `docs` where ' . $where);
+})->with([
+    'on its own'        => [fn ($q) => $q->whereNotNull('docs.meta'), '`meta` is not null'],
+    'after an or'       => [fn ($q) => $q->where('docs.a', 1)->orWhereNotNull('docs.a'), '`a` = ? or `a` is not null'],
+    'another column'    => [fn ($q) => $q->where('docs.a', 1)->whereNotNull('docs.b'), '`a` = ? and `b` is not null'],
+    'not an equality'   => [fn ($q) => $q->where('docs.a', '>', 1)->whereNotNull('docs.a'), '`a` > ? and `a` is not null'],
+    'not adjacent'      => [fn ($q) => $q->where('docs.a', 1)->where('docs.c', 2)->whereNotNull('docs.a'), '`a` = ? and `c` = ? and `a` is not null'],
+    'an or equality'    => [fn ($q) => $q->whereNotNull('docs.a')->where('docs.a', 1), '`a` is not null and `a` = ?'],
+]);
+
+it('keeps a whereNotNull() written without a qualifier', function () {
+    expect(manticoreQuery('docs')->whereNotNull('meta')->toSql())
+        ->toBe('select * from `docs` where `meta` is not null');
+});
+
+it('keeps a qualified whereNull()', function () {
+    expect(manticoreQuery('docs')->whereNull('docs.meta')->toSql())
+        ->toBe('select * from `docs` where `meta` is null');
+});
+
+it('leaves the table out of update and delete filters', function () {
+    $query = manticoreQuery('docs')->where('docs.id', 1);
+
+    expect($query->getGrammar()->compileUpdate($query, ['views' => 2]))
+        ->toBe('update `docs` set `views` = ? where `id` = ?');
+    expect($query->getGrammar()->compileDelete($query))
+        ->toBe('delete from `docs` where `id` = ?');
+});
+
+it('leaves raw filters and raw tables alone', function () {
+    expect(manticoreQuery('docs')->whereRaw('docs.a = 1')->toSql())
+        ->toBe('select * from `docs` where docs.a = 1');
+
+    expect(manticoreQuery('docs')->where(new Expression('docs.a'), 1)->toSql())
+        ->toBe('select * from `docs` where docs.a = ?');
+
+    expect(manticoreQuery('docs')->fromRaw('docs')->where('docs.a', 1)->toSql())
+        ->toBe('select * from docs where `docs`.`a` = ?');
+});
+
+it('does not change the query while compiling it', function () {
+    $query = manticoreQuery('docs')->where('docs.tag', 'a')->whereNotNull('docs.tag');
+
+    $query->toSql();
+
+    expect($query->wheres)->toHaveCount(2);
+    expect($query->wheres[0]['column'])->toBe('docs.tag');
+});
