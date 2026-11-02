@@ -51,9 +51,8 @@ $article->delete();
   under [Partial replace](writing-documents.md#partial-replace), and `knn()` runs one more
   query to read the document's vector. A document that does not exist or has no vector gives
   no results.
-- **`toSql()` shows `knn()` with the UUID until the query runs,** and with the vector after.
-  Don't send that SQL by hand, and never quote the UUID: Manticore reads a *quoted* string
-  there as text to embed, which on an auto-embeddings column returns unrelated documents and
-  reports no problem.
+- **`toSql()` shows `knn()` with the UUID,** while the query sends the vector. Don't send that SQL
+  by hand, and never quote the UUID: Manticore reads a *quoted* string there as text to embed,
+  which on an auto-embeddings column returns unrelated documents and reports no problem.
 - **Before Manticore 29.2.5, naming a text column in the select returns it empty** on a UUID
   table, as in `select('id', 'title')`. `select *`, the default, is not affected.

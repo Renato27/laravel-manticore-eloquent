@@ -54,8 +54,8 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * Manticore expects, for the same reason. A UUID document id stays unquoted on purpose:
      * Manticore reads a quoted third argument as text to embed, which on an auto-embeddings
      * column returns unrelated documents without any error. A select never sends this form,
-     * since the builder swaps the id for its vector first. Anything else that does gets a
-     * syntax error, and the id is validated, so it cannot carry anything but a UUID.
+     * since it runs with the vector of that document. Anything else that does gets a syntax
+     * error, and the id is validated, so it cannot carry anything but a UUID.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where

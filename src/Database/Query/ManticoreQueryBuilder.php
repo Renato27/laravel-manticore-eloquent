@@ -467,8 +467,7 @@ class ManticoreQueryBuilder extends Builder
      * Pass a document id instead of a vector to find documents similar to that one.
      * Pair it with selectRaw('knn_dist() as distance') to read the similarity score.
      * Manticore has no KNN by UUID, so with a UUID id the select reads that document's vector
-     * first and searches with it, leaving the document out of the results. Until then
-     * toSql() shows the id; running the query rewrites it into the vector.
+     * first and searches with it, leaving the document out of the results. toSql() shows the id.
      *
      * @param  string  $column
      * @param  array<int, int|float>|int|string  $vector
@@ -720,13 +719,20 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Run the select, unless knn() points at a document that has no vector to search with.
+     * Run the select. A knn() by UUID runs on a copy holding the vector of that document, or gives
+     * no rows when it has none.
      *
      * @return array
      */
     protected function runSelect()
     {
-        return $this->resolveKnnDocumentIds() ? parent::runSelect() : [];
+        if (! $this->hasKnnByUuid()) {
+            return parent::runSelect();
+        }
+
+        $query = clone $this;
+
+        return $query->resolveKnnDocumentIds() ? $query->runSelect() : [];
     }
 
     /**
@@ -740,13 +746,35 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Get a lazy collection for the given query.
+     * Get a lazy collection for the given query, as runSelect() does for a knn() by UUID.
      *
      * @return \Illuminate\Support\LazyCollection
      */
     public function cursor()
     {
-        return $this->resolveKnnDocumentIds() ? parent::cursor() : LazyCollection::empty();
+        if (! $this->hasKnnByUuid()) {
+            return parent::cursor();
+        }
+
+        $query = clone $this;
+
+        return $query->resolveKnnDocumentIds() ? $query->cursor() : LazyCollection::empty();
+    }
+
+    /**
+     * Whether a knn() points at a document by UUID, which Manticore cannot do.
+     *
+     * @return bool
+     */
+    protected function hasKnnByUuid(): bool
+    {
+        foreach ($this->wheres as $where) {
+            if ($where['type'] === 'Knn' && is_string($where['vector']) && is_string(DocumentId::normalize($where['vector']))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -849,3 +849,41 @@ it('fails loudly on what the server cannot do with json', function () {
             ->and(fn () => $table()->whereJsonLength('meta->l', 1)->get())->toThrow(QueryException::class);
     });
 });
+
+it('leaves the query as it was after running knn() by uuid', function () {
+    withUuidTable(function () {
+        [$source] = seedUuidNeighbours();
+
+        $query = DB::connection('manticore')->table('it_uuid_articles_rt')->knn('embedding', $source, k: 10);
+
+        $sql = $query->toSql();
+        $wheres = $query->wheres;
+
+        $first = $query->get();
+        $query->cursor()->all();
+
+        expect($query->toSql())->toBe($sql)
+            ->and($query->wheres)->toBe($wheres)
+            ->and($query->getBindings())->toBe([])
+            ->and($query->get()->pluck('id')->all())->toBe($first->pluck('id')->all());
+    });
+});
+
+it('reads the vector again each time knn() by uuid runs, so it sees a change', function () {
+    withUuidTable(function () {
+        [$source] = seedUuidNeighbours();
+
+        $connection = DB::connection('manticore');
+        $query = $connection->table('it_uuid_articles_rt')->knn('embedding', $source, k: 10);
+
+        $connection->flushQueryLog();
+        $connection->enableQueryLog();
+
+        $query->get();
+        $query->get();
+
+        $reads = array_filter($connection->getQueryLog(), fn ($q) => str_contains($q['query'], 'limit 1'));
+
+        expect($reads)->toHaveCount(2);
+    });
+});
