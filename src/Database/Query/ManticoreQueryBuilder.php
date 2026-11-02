@@ -2,6 +2,7 @@
 
 namespace ManticoreEloquent\Database\Query;
 
+use Closure;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Database\QueryException;
@@ -132,7 +133,62 @@ class ManticoreQueryBuilder extends Builder
      */
     public function update(array $values)
     {
+        $this->requireWhere();
+
         return parent::update($this->castRow($values));
+    }
+
+    /**
+     * Delete documents.
+     *
+     * @param  mixed  $id
+     * @return int
+     */
+    public function delete($id = null)
+    {
+        if ($id === null) {
+            $this->requireWhere();
+        }
+
+        return parent::delete($id);
+    }
+
+    /**
+     * Manticore's UPDATE has no LIMIT, so this updates every document that matches, where
+     * Laravel stops at the first.
+     *
+     * @param  array  $attributes
+     * @param  array|callable  $values
+     * @return bool
+     */
+    public function updateOrInsert(array $attributes, array|callable $values = [])
+    {
+        $exists = $this->where($attributes)->exists();
+
+        if ($values instanceof Closure) {
+            $values = $values($exists);
+        }
+
+        if (! $exists) {
+            return $this->insert(array_merge($attributes, $values));
+        }
+
+        return empty($values) || (bool) $this->update($values);
+    }
+
+    /**
+     * UPDATE and DELETE need a WHERE on Manticore, so a query meant for every document gets one
+     * that matches them all. A UUID id only takes = and !=, so it is compared with a new UUID.
+     *
+     * @return void
+     */
+    protected function requireWhere(): void
+    {
+        if (empty($this->wheres)) {
+            $this->columnType('id') === 'uuid'
+                ? $this->where('id', '!=', (string) Str::uuid())
+                : $this->where('id', '>', 0);
+        }
     }
 
     /**

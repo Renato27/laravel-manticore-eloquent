@@ -95,3 +95,58 @@ it('limit: increment() and decrement() fail with an error', function () {
     expect(fn () => FeaturePost::where('id', 1)->increment('views'))->toThrow(QueryException::class);
     expect(fn () => FeaturePost::where('id', 1)->decrement('views'))->toThrow(QueryException::class);
 });
+
+it('deletes every document without a filter', function () {
+    expect(FeaturePost::query()->delete())->toBe(3)
+        ->and(FeaturePost::count())->toBe(0);
+});
+
+it('updates every document without a filter', function () {
+    expect(FeaturePost::query()->update(['views' => 7]))->toBe(3)
+        ->and(FeaturePost::where('views', 7)->count())->toBe(3);
+});
+
+it('deletes and updates every document of a uuid table', function () {
+    Schema::connection('manticore')->dropIfExists('feature_uuid');
+    Schema::connection('manticore')->create('feature_uuid', function (Blueprint $table) {
+        $table->uuid('id');
+        $table->integer('views');
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('feature_uuid');
+        $table()->insert([['views' => 1], ['views' => 2]]);
+
+        expect($table()->update(['views' => 7]))->toBe(2)
+            ->and($table()->where('views', 7)->count())->toBe(2)
+            ->and($table()->delete())->toBe(2)
+            ->and($table()->count())->toBe(0);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('feature_uuid');
+    }
+});
+
+it('keeps a filter and deletes by id as usual', function () {
+    expect(FeaturePost::where('id', 1)->delete())->toBe(1)
+        ->and(featureTable()->delete(2))->toBe(1)
+        ->and(FeaturePost::count())->toBe(1);
+});
+
+it('fails loudly on a limit in update() and delete(), which the server does not have', function () {
+    expect(fn () => featureTable()->limit(1)->update(['views' => 1]))->toThrow(QueryException::class)
+        ->and(fn () => featureTable()->limit(1)->delete())->toThrow(QueryException::class)
+        ->and(FeaturePost::count())->toBe(3);
+});
+
+it('runs updateOrInsert() both ways', function () {
+    expect(featureTable()->updateOrInsert(['id' => 1], ['views' => 11]))->toBeTrue()
+        ->and(FeaturePost::find(1)->views)->toBe(11)
+        ->and(featureTable()->updateOrInsert(['id' => 9], ['title' => 'new', 'views' => 12, 'slug' => 'n']))->toBeTrue()
+        ->and(FeaturePost::find(9)->views)->toBe(12);
+});
+
+it('updates every match in updateOrInsert(), which cannot stop at one', function () {
+    featureTable()->updateOrInsert(['slug' => 'b'], ['views' => 50]);
+
+    expect(FeaturePost::where('views', 50)->pluck('id')->sort()->values()->all())->toBe([2, 3]);
+});

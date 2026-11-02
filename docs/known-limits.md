@@ -9,6 +9,8 @@
   throws a `TypeError`. Use `$post->notes()->getQuery()->match('x')`.
 - **No transactions / row locks.** Manticore has none; `lock()` / `->lockForUpdate()` are
   no-ops, and DB transactions should not be relied on.
+- **`update()` and `delete()` take no `limit()` or `orderBy()`,** which fail with an error. For the
+  same reason, `updateOrInsert()` updates every document that matches, not just the first.
 - **`increment()` and `decrement()` fail with an error.** Manticore's `UPDATE` takes values, not
   expressions like `views + 1`. Read the value and write the new one, which is not atomic.
 - **`update()` vs `replace()`.** Manticore `UPDATE` only changes attribute (non-text)

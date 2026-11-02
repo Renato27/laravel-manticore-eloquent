@@ -722,3 +722,26 @@ it('compiles what a relation adds to a foreign key', function () {
     expect(typedQuery()->where('docs.views', 1)->whereNotNull('docs.views')->toSql())
         ->toBe(unlimited('select * from `docs` where `views` = ? and `views` != 0'));
 });
+
+it('gives an update and a delete without a filter a where that matches everything', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('update')->once()
+        ->with('update `docs` set `views` = ? where `id` > ?', [1, 0])->andReturn(2);
+    $connection->shouldReceive('delete')->once()
+        ->with('delete from `docs` where `id` > ?', [0])->andReturn(2);
+
+    $query = fn () => (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs');
+
+    expect($query()->update(['views' => 1]))->toBe(2)
+        ->and($query()->delete())->toBe(2);
+});
+
+it('leaves a delete by id without any extra filter', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('delete')->once()
+        ->with('delete from `docs` where `id` = ?', [5])->andReturn(1);
+
+    expect((new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs')->delete(5))->toBe(1);
+});
