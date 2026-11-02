@@ -221,6 +221,61 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
+     * Eloquent qualifies keys and foreign keys with the table, and Manticore rejects
+     * `table`.`column`, so filters on the query's own table go out bare. Queries with a join are
+     * left as they are.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @return array
+     */
+    protected function compileWheresToArray($query)
+    {
+        if (! empty($query->joins) || ! is_string($query->from)) {
+            return parent::compileWheresToArray($query);
+        }
+
+        $qualifier = last(preg_split('/\s+as\s+/i', $query->from)) . '.';
+        $wheres = [];
+
+        foreach ($query->wheres as $where) {
+            if ($this->isRelationNotNull($where, end($wheres) ?: null, $qualifier)) {
+                continue;
+            }
+
+            if (is_string($where['column'] ?? null) && str_starts_with($where['column'], $qualifier)) {
+                $where['column'] = substr($where['column'], strlen($qualifier));
+            }
+
+            $wheres[] = $where;
+        }
+
+        $bare = clone $query;
+        $bare->wheres = $wheres;
+
+        return parent::compileWheresToArray($bare);
+    }
+
+    /**
+     * Relations add `whereNotNull(foreign key)` right after `foreign key = ?`. Next to that equality
+     * it changes nothing, and on Manticore it is an error on most column types and leaves out
+     * matching rows on a string column, so that exact pair loses its second half.
+     *
+     * @param  array  $where
+     * @param  array|null  $previous  The filter before it, with its qualifier already removed.
+     * @param  string  $qualifier
+     * @return bool
+     */
+    protected function isRelationNotNull(array $where, ?array $previous, string $qualifier): bool
+    {
+        return $where['type'] === 'NotNull'
+            && $where['boolean'] === 'and'
+            && $previous !== null
+            && $previous['type'] === 'Basic'
+            && $previous['operator'] === '='
+            && $qualifier . $previous['column'] === $where['column'];
+    }
+
+    /**
      * Eloquent qualifies updated_at with the table, and Manticore rejects `table`.`column`.
      *
      * @param  \Illuminate\Database\Query\Builder  $query

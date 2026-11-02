@@ -2,9 +2,9 @@
 
 Eloquent and the Query Builder work as usual. These helpers cover what only Manticore has.
 
-The examples use a model that extends `ManticoreModel`. On a model with the `HasManticore`
-trait, start from `Company::manticore()` instead of `Company::query()`, which would go to
-your relational database.
+The examples use a model that extends `ManticoreModel`. On a relational model with the
+`HasManticore` trait, start from `Company::manticore()` instead of `Company::query()`, which
+would go to your relational database.
 
 ## Full-text search and options
 

@@ -10,8 +10,8 @@
 
 Use **Eloquent natively on Manticore Search**. This package registers Manticore as a
 first-class Laravel database connection over the **MySQL protocol** (port `9306`), so
-`where`, `find`, `create`, `update`, `delete`, `paginate`, `chunk`, scopes, casts and
-migrations work the way you already write them, plus Manticore helpers (`match`, `knn`,
+`where`, `find`, `create`, `update`, `delete`, `paginate`, `chunk`, scopes, casts, relations
+and migrations work the way you already write them, plus Manticore helpers (`match`, `knn`,
 `highlight`, `option`, `maxMatches`, `facet`, `replace`).
 
 Manticore speaks the MySQL wire protocol, and all of Eloquent is built on a `Connection` +
@@ -98,8 +98,8 @@ Company::manticore()->match('fintech')->paginate(); // Manticore
 
 ## Before you start
 
-Manticore is not MySQL. It has no transactions, `update()` cannot change full-text fields,
-and relations only work when the related model is in your relational database.
+Manticore is not MySQL. It has no transactions, `update()` cannot change full-text fields, and
+relations that need a join or a subquery, such as `belongsToMany`, fail with an error.
 [Known limits](docs/known-limits.md) has the details.
 
 ## Documentation

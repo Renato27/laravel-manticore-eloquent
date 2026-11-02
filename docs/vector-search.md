@@ -23,7 +23,7 @@ Article::query()
     ->get();
 ```
 
-On a model with the `HasManticore` trait, start from `Company::manticore()` instead of
+On a relational model with the `HasManticore` trait, start from `Company::manticore()` instead of
 `Company::query()`.
 
 ## Writing vectors
