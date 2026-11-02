@@ -29,6 +29,24 @@ class ManticoreSchemaBuilder extends Builder
     }
 
     /**
+     * List the tables in Laravel's introspection shape.
+     *
+     * @param  mixed  $schema
+     * @return array<int, array<string, mixed>>
+     */
+    public function getTables($schema = null): array
+    {
+        return array_map(static fn ($row) => [
+            'name'      => $row->Table,
+            'schema'    => null,
+            'size'      => null,
+            'comment'   => null,
+            'collation' => null,
+            'engine'    => $row->Type,
+        ], $this->connection->select('SHOW TABLES'));
+    }
+
+    /**
      * List a table's column names.
      *
      * @param  string  $table

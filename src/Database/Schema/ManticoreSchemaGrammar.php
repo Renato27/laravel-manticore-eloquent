@@ -5,6 +5,7 @@ namespace ManticoreEloquent\Database\Schema;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Grammars\Grammar;
 use Illuminate\Support\Fluent;
+use LogicException;
 
 class ManticoreSchemaGrammar extends Grammar
 {
@@ -117,6 +118,18 @@ class ManticoreSchemaGrammar extends Grammar
     }
 
     /**
+     * Compile a table rename.
+     *
+     * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
+     * @param  \Illuminate\Support\Fluent  $command
+     * @return string
+     */
+    public function compileRename(Blueprint $blueprint, Fluent $command): string
+    {
+        return 'alter table ' . $this->wrapTable($blueprint) . ' rename ' . $this->wrapTable($command->to);
+    }
+
+    /**
      * Compile one ALTER … DROP COLUMN per dropped column.
      *
      * @param  \Illuminate\Database\Schema\Blueprint  $blueprint
@@ -153,6 +166,23 @@ class ManticoreSchemaGrammar extends Grammar
         }
 
         return $columns;
+    }
+
+    /**
+     * The definition of a column, or a clear error when Manticore has no type for it.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     *
+     * @throws \LogicException
+     */
+    protected function getType(Fluent $column)
+    {
+        if (! method_exists($this, 'type' . ucfirst($column->type))) {
+            throw new LogicException("Manticore has no column type for [{$column->type}], used by column [{$column->name}].");
+        }
+
+        return parent::getType($column);
     }
 
     /**
@@ -414,6 +444,116 @@ class ManticoreSchemaGrammar extends Grammar
         }
 
         return implode(' ', $parts);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeTinyText(Fluent $column): string
+    {
+        return $this->typeText($column);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeMediumText(Fluent $column): string
+    {
+        return $this->typeText($column);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeLongText(Fluent $column): string
+    {
+        return $this->typeText($column);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeEnum(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeSet(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeIpAddress(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeMacAddress(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    /**
+     * Manticore has no type for a time of day, so it stays as written.
+     *
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeTime(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeTimeTz(Fluent $column): string
+    {
+        return 'string';
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeYear(Fluent $column): string
+    {
+        return 'integer';
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeTimestampTz(Fluent $column): string
+    {
+        return 'timestamp';
+    }
+
+    /**
+     * @param  \Illuminate\Support\Fluent  $column
+     * @return string
+     */
+    protected function typeDateTimeTz(Fluent $column): string
+    {
+        return 'timestamp';
     }
 
     /**
