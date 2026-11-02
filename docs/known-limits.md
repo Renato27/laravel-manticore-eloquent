@@ -11,7 +11,6 @@
   no-ops, and DB transactions should not be relied on.
 - **`increment()` and `decrement()` fail with an error.** Manticore's `UPDATE` takes values, not
   expressions like `views + 1`. Read the value and write the new one, which is not atomic.
-- **`SoftDeletes` fails with an error,** because it filters with `deleted_at is null`.
 - **`update()` vs `replace()`.** Manticore `UPDATE` only changes attribute (non-text)
   columns in place. To rewrite a full document (including `text` fields) use
   [`replace()`](writing-documents.md).
@@ -23,12 +22,15 @@
 - **Qualified columns break.** Manticore rejects `` `table`.`column` ``. The driver takes the
   query's own table out of filters and updated columns, which is what `find()` and relations
   need. Elsewhere, such as in `orderBy()`, write the column bare.
-- **`whereNull()` and `whereNotNull()` only work on JSON columns.** On most other types they fail
-  with an error, and on a `string` column they run but **leave out rows that have a value**.
+- **There is no `NULL` outside JSON.** A column without a value holds `0` or an empty string, so
+  the driver filters and writes those instead: `whereNull('views')` is `views = 0`, and writing
+  `null` stores the empty value. A real `0` therefore also counts as null. `SoftDeletes` works on
+  top of this. A `text` field cannot be filtered at all, so `whereNull()` on one fails with an
+  error, and so does any null filter on a `uuid` id.
 - **Timestamps are Unix integers.** Eloquent timestamps and date casts handle that for you, and
   so do dates in queries, as long as the table has both `created_at` and `updated_at`, which
-  `$table->timestamps()` adds. Otherwise set `public $timestamps = false`. There are no null
-  dates, so a document without one reads as 1970.
+  `$table->timestamps()` adds. Otherwise set `public $timestamps = false`. A date attribute
+  without a value reads as `null` on a model, and as `0` from the Query Builder.
 - **A value takes the type of its column.** Manticore does not convert types, so the driver reads
   each table's types with `DESC`, once per process, and sends `'10'` as a number to a numeric
   column, `10` as a string to a string column and a date string as a Unix integer to a timestamp

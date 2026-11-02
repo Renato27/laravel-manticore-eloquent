@@ -42,4 +42,26 @@ trait HasManticore
             ? $this->asDateTime($value)->getTimestamp()
             : parent::fromDateTime($value);
     }
+
+    /**
+     * A document without a date holds 0, which is what null means on Manticore, and not 1970.
+     *
+     * @param  array|object  $attributes
+     * @param  string|null  $connection
+     * @return static
+     */
+    public function newFromBuilder($attributes = [], $connection = null)
+    {
+        $attributes = (array) $attributes;
+
+        if ($this->getConnection() instanceof ManticoreConnection) {
+            foreach ($attributes as $key => $value) {
+                if (in_array($value, [0, '0'], true) && $this->isDateAttribute($key)) {
+                    $attributes[$key] = null;
+                }
+            }
+        }
+
+        return parent::newFromBuilder($attributes, $connection);
+    }
 }

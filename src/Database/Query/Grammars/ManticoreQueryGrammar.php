@@ -250,10 +250,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
         $wheres = [];
 
         foreach ($query->wheres as $where) {
-            if ($this->isRelationNotNull($where, end($wheres) ?: null, $qualifier)) {
-                continue;
-            }
-
             if (is_string($where['column'] ?? null) && str_starts_with($where['column'], $qualifier)) {
                 $where['column'] = substr($where['column'], strlen($qualifier));
             }
@@ -268,23 +264,51 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
-     * Relations add `whereNotNull(foreign key)` right after `foreign key = ?`. Next to that equality
-     * it changes nothing, and on Manticore it is an error on most column types and leaves out
-     * matching rows on a string column, so that exact pair loses its second half.
+     * Manticore has no NULL outside JSON: a column without a value holds its type's empty value.
      *
+     * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where
-     * @param  array|null  $previous  The filter before it, with its qualifier already removed.
-     * @param  string  $qualifier
-     * @return bool
+     * @return string
      */
-    protected function isRelationNotNull(array $where, ?array $previous, string $qualifier): bool
+    protected function whereNull(Builder $query, $where)
     {
-        return $where['type'] === 'NotNull'
-            && $where['boolean'] === 'and'
-            && $previous !== null
-            && $previous['type'] === 'Basic'
-            && $previous['operator'] === '='
-            && $qualifier . $previous['column'] === $where['column'];
+        $empty = $this->emptyLiteral($query, $where['column']);
+
+        return $empty === null ? parent::whereNull($query, $where) : $this->wrap($where['column']) . ' = ' . $empty;
+    }
+
+    /**
+     * The opposite of whereNull().
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $where
+     * @return string
+     */
+    protected function whereNotNull(Builder $query, $where)
+    {
+        $empty = $this->emptyLiteral($query, $where['column']);
+
+        return $empty === null ? parent::whereNotNull($query, $where) : $this->wrap($where['column']) . ' != ' . $empty;
+    }
+
+    /**
+     * What a column without a value holds, for the types that can be filtered on it.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  mixed  $column
+     * @return string|null
+     */
+    protected function emptyLiteral(Builder $query, mixed $column): ?string
+    {
+        if (! $query instanceof ManticoreQueryBuilder) {
+            return null;
+        }
+
+        return match ($query->columnType($column)) {
+            'uint', 'bigint', 'float', 'bool', 'timestamp' => '0',
+            'string' => "''",
+            default => null,
+        };
     }
 
     /**

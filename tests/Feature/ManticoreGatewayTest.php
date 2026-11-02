@@ -181,7 +181,7 @@ it('compiles relation queries without the table qualifier', function () {
     };
     $post->setAttribute('id', 1);
 
-    expect($post->notes()->toBase()->toSql())->toEndWith(unlimited('where `post_id` = ?'));
+    expect($post->notes()->toBase()->toSql())->toContain(' where `post_id` = ? and `post_id` ');
 });
 
 it('leaves qualifying the key to the framework', function () {

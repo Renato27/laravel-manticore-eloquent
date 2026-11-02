@@ -586,28 +586,6 @@ it('leaves a query with a join alone', function () {
         ->toBe(unlimited('select * from `docs` inner join `b` on `docs`.`id` = `b`.`doc_id` where `docs`.`tag` = ? and `docs`.`x` is not null'));
 });
 
-it('drops the whereNotNull() a relation adds right after the same column = ?', function () {
-    expect(manticoreQuery('docs')->where('docs.post_id', 1)->whereNotNull('docs.post_id')->toSql())
-        ->toBe(unlimited('select * from `docs` where `post_id` = ?'));
-
-    expect(manticoreQuery('docs')->where('docs.post_id', 1)->whereNotNull('docs.post_id')->where('docs.a', 2)->toSql())
-        ->toBe(unlimited('select * from `docs` where `post_id` = ? and `a` = ?'));
-
-    expect(manticoreQuery('docs')->where('x', 1)->orWhere('docs.post_id', 1)->whereNotNull('docs.post_id')->toSql())
-        ->toBe(unlimited('select * from `docs` where `x` = ? or `post_id` = ?'));
-});
-
-it('keeps any other qualified whereNotNull(), since dropping it would change the results', function (Closure $build, string $where) {
-    expect($build(manticoreQuery('docs'))->toSql())->toBe(unlimited('select * from `docs` where ' . $where));
-})->with([
-    'on its own'        => [fn ($q) => $q->whereNotNull('docs.meta'), '`meta` is not null'],
-    'after an or'       => [fn ($q) => $q->where('docs.a', 1)->orWhereNotNull('docs.a'), '`a` = ? or `a` is not null'],
-    'another column'    => [fn ($q) => $q->where('docs.a', 1)->whereNotNull('docs.b'), '`a` = ? and `b` is not null'],
-    'not an equality'   => [fn ($q) => $q->where('docs.a', '>', 1)->whereNotNull('docs.a'), '`a` > ? and `a` is not null'],
-    'not adjacent'      => [fn ($q) => $q->where('docs.a', 1)->where('docs.c', 2)->whereNotNull('docs.a'), '`a` = ? and `c` = ? and `a` is not null'],
-    'an or equality'    => [fn ($q) => $q->whereNotNull('docs.a')->where('docs.a', 1), '`a` is not null and `a` = ?'],
-]);
-
 it('keeps a whereNotNull() written without a qualifier', function () {
     expect(manticoreQuery('docs')->whereNotNull('meta')->toSql())
         ->toBe(unlimited('select * from `docs` where `meta` is not null'));
@@ -708,4 +686,37 @@ it('leaves a filter on a raw table without looking up any type', function () {
     $query = new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor);
 
     expect($query->fromRaw('docs')->where('views', '10')->getBindings())->toBe(['10']);
+});
+
+it('filters null by the empty value of the column', function (string $column, string $where) {
+    expect(typedQuery()->whereNull($column)->toSql())->toBe(unlimited("select * from `docs` where {$where}"));
+})->with([
+    'an integer'      => ['views', '`views` = 0'],
+    'a bigint'        => ['id', '`id` = 0'],
+    'a float'         => ['score', '`score` = 0'],
+    'a bool'          => ['on', '`on` = 0'],
+    'a timestamp'     => ['seen_at', '`seen_at` = 0'],
+    'a string'        => ['slug', "`slug` = ''"],
+    'a qualified one' => ['docs.views', '`views` = 0'],
+    'json keeps null' => ['meta', '`meta` is null'],
+    'an unknown type' => ['other', '`other` is null'],
+]);
+
+it('filters not null by the empty value of the column', function (string $column, string $where) {
+    expect(typedQuery()->whereNotNull($column)->toSql())->toBe(unlimited("select * from `docs` where {$where}"));
+})->with([
+    'an integer'      => ['views', '`views` != 0'],
+    'a string'        => ['slug', "`slug` != ''"],
+    'json keeps null' => ['meta', '`meta` is not null'],
+    'an unknown type' => ['other', '`other` is not null'],
+]);
+
+it('keeps the boolean of a null filter', function () {
+    expect(typedQuery()->where('slug', 'a')->orWhereNull('views')->toSql())
+        ->toBe(unlimited('select * from `docs` where `slug` = ? or `views` = 0'));
+});
+
+it('compiles what a relation adds to a foreign key', function () {
+    expect(typedQuery()->where('docs.views', 1)->whereNotNull('docs.views')->toSql())
+        ->toBe(unlimited('select * from `docs` where `views` = ? and `views` != 0'));
 });

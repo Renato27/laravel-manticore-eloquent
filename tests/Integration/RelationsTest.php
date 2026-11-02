@@ -329,14 +329,3 @@ it('keeps a whereNotNull() written by hand on a json column', function () {
         $schema->dropIfExists('rel_json');
     }
 });
-
-it('limit: null filters on other columns fail or mislead', function () {
-    $table = fn () => DB::connection('manticore')->table('rel_uuid_notes');
-
-    expect(fn () => DB::connection('manticore')->table('rel_notes')->whereNotNull('post_id')->get())
-        ->toThrow(QueryException::class);
-
-    RelUuidNote::create(['id' => 1, 'body' => 'has a value', 'post_uuid' => 'x']);
-
-    expect($table()->where('id', 1)->whereNotNull('post_uuid')->count())->toBe(0);
-});

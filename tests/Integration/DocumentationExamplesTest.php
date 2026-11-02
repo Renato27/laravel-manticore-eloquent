@@ -353,9 +353,9 @@ it('fails with an error when the table has no updated_at', function () {
         ->toThrow(QueryException::class, 'updated_at');
 });
 
-it('limit: a document without a timestamp reads as 1970', function () {
+it('reads a document without a timestamp as having none', function () {
     createStampedTable();
     docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a']);
 
-    expect(DocsTimestampedArticle::find(1)->created_at->year)->toBe(1970);
+    expect(DocsTimestampedArticle::find(1)->created_at)->toBeNull();
 });

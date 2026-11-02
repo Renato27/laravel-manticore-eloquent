@@ -184,7 +184,7 @@ class ManticoreQueryBuilder extends Builder
      * @param  mixed  $column
      * @return string|null
      */
-    protected function columnType(mixed $column): ?string
+    public function columnType(mixed $column): ?string
     {
         if (! is_string($column) || ! is_string($this->from)) {
             return null;
@@ -196,7 +196,8 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Put one row in its columns' types.
+     * Put one row in its columns' types. Manticore has no NULL to write, so a null becomes the
+     * empty value of its column.
      *
      * @param  array<string, mixed>  $row
      * @return array<string, mixed>
@@ -204,10 +205,26 @@ class ManticoreQueryBuilder extends Builder
     protected function castRow(array $row): array
     {
         foreach ($row as $column => $value) {
-            $row[$column] = $this->castToColumn($column, $value);
+            $row[$column] = $value === null ? $this->emptyValue($column) : $this->castToColumn($column, $value);
         }
 
         return $row;
+    }
+
+    /**
+     * The value of a column that has none.
+     *
+     * @param  string  $column
+     * @return mixed
+     */
+    protected function emptyValue(string $column): mixed
+    {
+        return match ($this->columnType($column)) {
+            'uint', 'bigint', 'float', 'bool', 'timestamp' => 0,
+            'string', 'text', 'json' => '',
+            'mva', 'mva64', 'float_vector' => new Expression('()'),
+            default => null,
+        };
     }
 
     /**

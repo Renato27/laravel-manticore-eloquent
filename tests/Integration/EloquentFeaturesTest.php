@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -19,15 +18,6 @@ class FeaturePost extends ManticoreModel
     public $timestamps = false;
 }
 
-class FeatureSoftPost extends ManticoreModel
-{
-    use SoftDeletes;
-
-    protected $table = 'feature_soft';
-    protected $guarded = [];
-    public $timestamps = false;
-}
-
 function featureTable(): \Illuminate\Database\Query\Builder
 {
     return DB::connection('manticore')->table('feature_posts');
@@ -42,7 +32,6 @@ beforeEach(function () {
 
     $schema = Schema::connection('manticore');
     $schema->dropIfExists('feature_posts');
-    $schema->dropIfExists('feature_soft');
     $schema->create('feature_posts', function (Blueprint $table) {
         $table->text('title');
         $table->integer('views');
@@ -55,7 +44,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    foreach (['feature_posts', 'feature_soft'] as $table) {
+    foreach (['feature_posts'] as $table) {
         try {
             Schema::connection('manticore')->dropIfExists($table);
         } catch (\Throwable) {
@@ -105,14 +94,4 @@ it('truncates a table', function () {
 it('limit: increment() and decrement() fail with an error', function () {
     expect(fn () => FeaturePost::where('id', 1)->increment('views'))->toThrow(QueryException::class);
     expect(fn () => FeaturePost::where('id', 1)->decrement('views'))->toThrow(QueryException::class);
-});
-
-it('limit: SoftDeletes fails with an error when querying', function () {
-    Schema::connection('manticore')->create('feature_soft', function (Blueprint $table) {
-        $table->text('title');
-        $table->timestamp('deleted_at');
-    });
-    DB::connection('manticore')->table('feature_soft')->insert(['id' => 1, 'title' => 'a']);
-
-    expect(fn () => FeatureSoftPost::query()->count())->toThrow(QueryException::class);
 });
