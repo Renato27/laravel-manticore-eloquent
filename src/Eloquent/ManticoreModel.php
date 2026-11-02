@@ -33,6 +33,18 @@ abstract class ManticoreModel extends Model
     }
 
     /**
+     * A timestamp column holds a Unix integer, so that is what a date attribute stores. Reading
+     * it back needs nothing extra, since Eloquent already takes an integer as a date.
+     *
+     * @param  mixed  $value
+     * @return int|mixed
+     */
+    public function fromDateTime($value)
+    {
+        return empty($value) ? $value : $this->asDateTime($value)->getTimestamp();
+    }
+
+    /**
      * Falls back to the configured Manticore connection when the model doesn't set one.
      *
      * @return string|null

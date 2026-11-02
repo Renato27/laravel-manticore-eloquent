@@ -21,7 +21,7 @@ return new class extends Migration {
             $table->float('score');                     // float
             $table->boolean('published');               // bool
             $table->json('meta');                       // json
-            $table->timestamp('created_at');            // timestamp
+            $table->timestamps();                       // created_at, updated_at (timestamp)
             $table->mva('tag_ids');                     // multi  (uint set)
             $table->mva64('big_ids');                   // multi64
             $table->floatVector('embedding', dims: 384); // float_vector for KNN
@@ -61,8 +61,8 @@ To use UUIDs as document ids, declare the id with `$table->uuid('id')`. See
 | `floatVector` | `float_vector` |
 | `uuid` (only on `id`) | `uuid` |
 
-A `timestamp` column holds a Unix integer, so write `now()->timestamp` to it rather than a
-date. See [Known limits](known-limits.md).
+A `timestamp` column holds a Unix integer. See [Known limits](known-limits.md) for what that
+means when you write one.
 
 Text columns accept `->indexed()`/`->stored()`, and tables accept `minInfixLen()`,
 `morphology()` and the generic `manticoreOptions([...])`.

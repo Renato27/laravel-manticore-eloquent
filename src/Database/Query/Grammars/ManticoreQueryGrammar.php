@@ -5,6 +5,7 @@ namespace ManticoreEloquent\Database\Query\Grammars;
 use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
 use ManticoreEloquent\Database\Query\DocumentId;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
@@ -217,6 +218,24 @@ class ManticoreQueryGrammar extends MySqlGrammar
         return 'replace into '.$this->wrapTable($query->from)
             .' set '.implode(', ', $assignments)
             .' where '.$this->wrap('id').' = ?';
+    }
+
+    /**
+     * Eloquent qualifies updated_at with the table, and Manticore rejects `table`.`column`.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $values
+     * @return string
+     */
+    protected function compileUpdateColumns(Builder $query, array $values)
+    {
+        $columns = [];
+
+        foreach ($values as $key => $value) {
+            $columns[$this->isJsonSelector($key) ? $key : Str::afterLast($key, '.')] = $value;
+        }
+
+        return parent::compileUpdateColumns($query, $columns);
     }
 
     /**

@@ -503,3 +503,25 @@ it('leaves knn() by a numeric string id to the server, without reading the vecto
         new ManticoreProcessor
     ))->from('docs')->knn('embedding', '42', k: 10)->get();
 });
+
+it('leaves the table out of updated columns, since Manticore rejects qualified columns', function () {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('update')
+        ->once()
+        ->with('update `docs` set `views` = ?, `updated_at` = ? where `id` = ?', [2, 1700000000, 1])
+        ->andReturn(1);
+
+    (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('docs')->where('id', 1)->update(['views' => 2, 'docs.updated_at' => 1700000000]);
+});
+
+it('keeps a json path intact when compiling updated columns', function () {
+    $query = manticoreQuery('docs');
+
+    expect($query->getGrammar()->compileUpdate($query, ['meta->a' => 1]))
+        ->toContain('json_set(`meta`');
+});

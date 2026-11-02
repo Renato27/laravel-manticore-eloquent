@@ -13,14 +13,13 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
 /**
  * The README and the docs, run as printed: same classes, same calls, same migration. These
  * are the first lines of this package anyone copies, so they have to work. It also holds the
- * limits docs/known-limits.md describes; if one of those tests fails, the page is out of date.
+ * limits docs/known-limits.md describes; if one of those tests fails, that page is out of date.
  */
 
 class DocsArticle extends ManticoreModel
 {
     protected $table = 'docs_articles_rt';
     protected $guarded = [];
-    public $timestamps = false;
     protected $casts = ['published' => 'boolean'];
 }
 
@@ -65,6 +64,14 @@ class DocsDatetimeArticle extends ManticoreModel
     protected $casts = ['created_at' => 'datetime'];
 }
 
+class DocsStampedGatewayArticle extends Model
+{
+    use HasManticore;
+
+    protected $table = 'docs_stamped_rt';
+    protected $guarded = [];
+}
+
 class DocsNote extends ManticoreModel
 {
     protected $table = 'docs_notes_rt';
@@ -106,7 +113,7 @@ beforeEach(function () {
         $table->float('score');
         $table->boolean('published');
         $table->json('meta');
-        $table->timestamp('created_at');
+        $table->timestamps();
         $table->mva('tag_ids');
         $table->mva64('big_ids');
         $table->floatVector('embedding', dims: 384);
@@ -128,6 +135,7 @@ afterEach(function () {
 it('runs the README model example', function () {
     $article = DocsArticle::create(['title' => 'Hello', 'body' => 'laravel on manticore', 'published' => true]);
     expect($article->id)->toBeGreaterThan(0);
+    expect(DocsArticle::find($article->id)->created_at->year)->toBeGreaterThan(2000);
 
     docsTable('docs_articles_rt')->insert(['id' => 10, 'title' => 'ten', 'body' => 'laravel again', 'published' => 1, 'created_at' => 1700000000]);
 
@@ -230,50 +238,145 @@ it('creates the vector column from the migrations guide', function () {
 });
 
 /**
- * The limits docs/known-limits.md describes.
+ * Timestamps, as docs/known-limits.md describes them.
  */
 function createStampedTable(): void
 {
     docsSchema()->create('docs_stamped_rt', function (Blueprint $table) {
         $table->text('title');
         $table->integer('views');
-        $table->timestamp('created_at');
-        $table->timestamp('updated_at');
+        $table->timestamps();
     });
 }
 
-it('limit: a timestamped create() silently stores 0', function () {
+function stampedRow(int $id): object
+{
+    return docsTable('docs_stamped_rt')->where('id', $id)->first();
+}
+
+it('stores Eloquent timestamps as Unix integers on create()', function () {
     createStampedTable();
 
+    $before = time();
     $article = DocsTimestampedArticle::create(['id' => 1, 'title' => 'a', 'views' => 1]);
 
-    expect($article->created_at->year)->toBeGreaterThan(2000);
-    expect(docsTable('docs_stamped_rt')->where('id', 1)->value('created_at'))->toBe(0);
+    expect(stampedRow(1)->created_at)->toBeGreaterThanOrEqual($before);
+    expect(stampedRow(1)->updated_at)->toBeGreaterThanOrEqual($before);
+    expect(DocsTimestampedArticle::find(1)->created_at->getTimestamp())->toBe($article->created_at->getTimestamp());
 });
 
-it('limit: a timestamped update() fails with an error', function () {
+it('refreshes updated_at on a builder update()', function () {
     createStampedTable();
-    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'views' => 1]);
+    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'views' => 1, 'created_at' => 1000, 'updated_at' => 1000]);
 
-    expect(fn () => DocsTimestampedArticle::where('id', 1)->update(['views' => 2]))->toThrow(QueryException::class);
+    DocsTimestampedArticle::where('id', 1)->update(['views' => 2]);
+
+    expect(stampedRow(1)->views)->toBe(2);
+    expect(stampedRow(1)->updated_at)->toBeGreaterThan(1700000000);
+    expect(stampedRow(1)->created_at)->toBe(1000);
 });
 
-it('limit: a datetime cast reads an integer but loses a written date', function () {
+it('refreshes updated_at on save() and touch()', function () {
     createStampedTable();
+    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'views' => 1, 'created_at' => 1000, 'updated_at' => 1000]);
 
-    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'created_at' => 1700000000]);
-    expect(DocsDatetimeArticle::find(1)->created_at->year)->toBe(2023);
+    $article = DocsTimestampedArticle::find(1);
+    $article->views = 3;
+    $article->save();
+
+    expect(stampedRow(1)->views)->toBe(3);
+    expect(stampedRow(1)->updated_at)->toBeGreaterThan(1700000000);
+
+    docsTable('docs_stamped_rt')->where('id', 1)->update(['updated_at' => 1000]);
+    DocsTimestampedArticle::find(1)->touch();
+
+    expect(stampedRow(1)->updated_at)->toBeGreaterThan(1700000000);
+});
+
+it('does not rewrite a document saved without changes', function () {
+    createStampedTable();
+    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'views' => 1, 'created_at' => 1000, 'updated_at' => 1000]);
+
+    DocsTimestampedArticle::find(1)->save();
+
+    expect(stampedRow(1)->updated_at)->toBe(1000);
+});
+
+it('writes a datetime cast as a Unix integer and reads it back as a date', function () {
+    createStampedTable();
 
     DocsDatetimeArticle::create(['id' => 2, 'title' => 'b', 'created_at' => '2026-01-02 03:04:05']);
-    expect(docsTable('docs_stamped_rt')->where('id', 2)->value('created_at'))->toBe(0);
+
+    $expected = Illuminate\Support\Carbon::parse('2026-01-02 03:04:05')->getTimestamp();
+
+    expect(stampedRow(2)->created_at)->toBe($expected);
+    expect(DocsDatetimeArticle::find(2)->created_at->format('Y-m-d H:i:s'))->toBe('2026-01-02 03:04:05');
 });
 
-it('stores a timestamp written as an integer', function () {
+it('keeps the same instant when the application is not in UTC', function () {
     createStampedTable();
 
-    DocsArticle::create(['id' => 1, 'title' => 'a', 'created_at' => now()->timestamp]);
+    $timezone = date_default_timezone_get();
+    date_default_timezone_set('America/Sao_Paulo');
 
-    expect(docsTable('docs_articles_rt')->where('id', 1)->value('created_at'))->toBeGreaterThan(1700000000);
+    try {
+        DocsDatetimeArticle::create(['id' => 2, 'title' => 'b', 'created_at' => '2026-01-02 03:04:05']);
+
+        expect(stampedRow(2)->created_at)->toBe(gmmktime(6, 4, 5, 1, 2, 2026));
+        expect(DocsDatetimeArticle::find(2)->created_at->format('Y-m-d H:i:s'))->toBe('2026-01-02 03:04:05');
+    } finally {
+        date_default_timezone_set($timezone);
+    }
+});
+
+it('sends dates in queries as Unix integers', function () {
+    createStampedTable();
+
+    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'created_at' => now()]);
+    docsTable('docs_stamped_rt')->insert(['id' => 2, 'title' => 'b', 'created_at' => now()->subYears(2)]);
+
+    expect(docsTable('docs_stamped_rt')->where('created_at', '>', now()->subDay())->pluck('id')->all())->toBe([1]);
+
+    docsTable('docs_stamped_rt')->where('id', 2)->update(['created_at' => now()]);
+
+    expect(stampedRow(2)->created_at)->toBeGreaterThan(1700000000);
+});
+
+it('writes timestamps through the HasManticore gateway', function () {
+    createStampedTable();
+
+    DocsStampedGatewayArticle::manticore()->create(['id' => 1, 'title' => 'a', 'views' => 1]);
+
+    expect(stampedRow(1)->created_at)->toBeGreaterThan(1700000000);
+
+    DocsStampedGatewayArticle::manticore()->where('id', 1)->update(['views' => 2]);
+
+    expect(stampedRow(1)->views)->toBe(2);
+});
+
+it('fails with an error when the table has no updated_at', function () {
+    docsSchema()->create('docs_plain_rt', function (Blueprint $table) {
+        $table->text('title');
+        $table->timestamp('created_at');
+    });
+
+    expect(fn () => (new DocsTimestampedArticle)->setTable('docs_plain_rt')->newQuery()->create(['id' => 1, 'title' => 'a']))
+        ->toThrow(QueryException::class, 'updated_at');
+});
+
+it('limit: a date string written without a date cast silently stores 0', function () {
+    createStampedTable();
+
+    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'created_at' => '2026-01-02 03:04:05']);
+
+    expect(stampedRow(1)->created_at)->toBe(0);
+});
+
+it('limit: a document without a timestamp reads as 1970', function () {
+    createStampedTable();
+    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a']);
+
+    expect(DocsTimestampedArticle::find(1)->created_at->year)->toBe(1970);
 });
 
 it('limit: a relation that queries Manticore fails with an error', function () {

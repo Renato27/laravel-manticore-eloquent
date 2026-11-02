@@ -67,15 +67,15 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 
 Reads (`find`, `firstOrFail`, `value`, `exists`, `latest/oldest`, `count/sum/avg/min/max`
 aggregates, `cursor/lazy/chunk`, local/global scopes), two-way casts, mutators/accessors,
-`$appends`, events/observers, mass assignment (`fillable`/`guarded`) and pagination.
+`$appends`, events/observers, mass assignment (`fillable`/`guarded`) and pagination. Timestamps
+need one conversion: `fromDateTime()` and `prepareBindings()` send dates as Unix integers.
 
 ## Known limitations
 
 - No ACID transactions / locks.
 - `UPDATE` only changes attributes; use `replace()` to rewrite a full document.
 - JOINs across indexes are limited in Manticore — prefer denormalized indexes.
-- Eloquent timestamps and relations that query Manticore do not work. See
-  [Known limits](known-limits.md).
+- Relations that query Manticore do not work. See [Known limits](known-limits.md).
 - `replaceWhereId()` and `knn()` by document id go through Manticore Buddy, which only takes
   numeric ids, so the builder handles UUIDs itself. `replaceWhereId()` tries the native
   statement, then falls back to read, merge and full `REPLACE`, which is not atomic. `knn()`

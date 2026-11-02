@@ -147,3 +147,25 @@ it('leaves the key unqualified on the gateway, since Manticore rejects qualified
 it('keeps the key qualified on the normal connection of a gateway model', function () {
     expect((new GatewayCompany)->getQualifiedKeyName())->toBe('companies.id');
 });
+
+it('turns dates into Unix integers on a ManticoreModel', function () {
+    expect((new DefaultArticle)->fromDateTime('2026-01-02 03:04:05'))
+        ->toBe(Illuminate\Support\Carbon::parse('2026-01-02 03:04:05')->getTimestamp())
+        ->and((new DefaultArticle)->fromDateTime(null))->toBeNull();
+});
+
+it('turns dates into Unix integers on a gateway model only while it is on Manticore', function () {
+    $date = '2026-01-02 03:04:05';
+
+    expect(GatewayCompany::manticore()->getModel()->fromDateTime($date))
+        ->toBe(Illuminate\Support\Carbon::parse($date)->getTimestamp())
+        ->and(GatewayCompany::manticore()->getModel()->fromDateTime(null))->toBeNull()
+        ->and((new GatewayCompany)->fromDateTime($date))->toBe($date);
+});
+
+it('binds a date as a Unix integer on the Manticore connection', function () {
+    $date = Illuminate\Support\Carbon::parse('2026-01-02 03:04:05');
+
+    expect(DB::connection('manticore')->prepareBindings([$date, true, 'text', 5]))
+        ->toBe([$date->getTimestamp(), 1, 'text', 5]);
+});

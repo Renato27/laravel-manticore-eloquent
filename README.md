@@ -62,7 +62,6 @@ class Article extends ManticoreModel
 {
     protected $table = 'articles_rt';
     protected $guarded = [];
-    public $timestamps = false;   // Eloquent timestamps don't work: see Known limits
     protected $casts = ['published' => 'boolean'];
 }
 
@@ -99,8 +98,8 @@ Company::manticore()->match('fintech')->paginate(); // Manticore
 ## Before you start
 
 Manticore is not MySQL. It has no transactions, `update()` cannot change full-text fields,
-Eloquent timestamps have to be turned off, and relations only work when the related model is
-in your relational database. [Known limits](docs/known-limits.md) has the details.
+and relations only work when the related model is in your relational database.
+[Known limits](docs/known-limits.md) has the details.
 
 ## Documentation
 
@@ -111,7 +110,7 @@ in your relational database. [Known limits](docs/known-limits.md) has the detail
 | [Vector search](docs/vector-search.md) | `knn`, "more like this document", `VectorCast` |
 | [UUID document ids](docs/uuid-document-ids.md) | The same primary key in your database and in Manticore |
 | [Migrations](docs/migrations.md) | Column types, vector columns, table options |
-| [Known limits](docs/known-limits.md) | What differs from MySQL: timestamps, relations, transactions, JOINs |
+| [Known limits](docs/known-limits.md) | What differs from MySQL: relations, timestamps, transactions, JOINs |
 | [Architecture](docs/ARCHITECTURE.md) | The design and the SQL differences handled |
 
 ## Related packages
