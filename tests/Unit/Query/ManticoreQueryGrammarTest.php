@@ -3,6 +3,7 @@
 use Illuminate\Database\Query\Expression;
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\QueryException;
 use ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
 use ManticoreEloquent\Database\Query\Processors\ManticoreProcessor;
@@ -227,3 +228,300 @@ it('rejects a quoted option value that closes its own literal', function ($value
     "a' OR 1=1 -- ",
     "'a\\'",
 ]);
+
+it('compiles a partial REPLACE ... SET ... WHERE id', function () {
+    $query = manticoreQuery('t1_docs');
+
+    $sql = $query->getGrammar()->compileReplaceSet($query, ['title' => 'Hello', 'price' => 10]);
+
+    expect($sql)->toBe('replace into `t1_docs` set `title` = ?, `price` = ? where `id` = ?');
+});
+
+it('inlines Expression values in a partial REPLACE instead of binding them', function () {
+    $query = manticoreQuery('t1_docs');
+
+    $sql = $query->getGrammar()->compileReplaceSet($query, [
+        'title'     => 'Hello',
+        'embedding' => new Expression('(0.1, 0.2)'),
+    ]);
+
+    expect($sql)->toBe('replace into `t1_docs` set `title` = ?, `embedding` = (0.1, 0.2) where `id` = ?');
+});
+
+it('binds the values and then the id for a partial REPLACE', function () {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with(
+            'replace into `t1_docs` set `title` = ?, `embedding` = (0.1, 0.2), `price` = ? where `id` = ?',
+            ['Hello', 10, 42]
+        )
+        ->andReturn(true);
+
+    $query = (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('t1_docs');
+
+    expect($query->replaceWhereId(42, [
+        'title'     => 'Hello',
+        'embedding' => new Expression('(0.1, 0.2)'),
+        'price'     => 10,
+    ]))->toBeTrue();
+});
+
+it('treats an empty replaceWhereId() as a no-op', function () {
+    expect(manticoreQuery()->replaceWhereId(1, []))->toBeTrue();
+});
+
+it('rejects a non-positive id in replaceWhereId()', function (int $id) {
+    manticoreQuery()->replaceWhereId($id, ['title' => 'x']);
+})->with([0, -5])->throws(InvalidArgumentException::class);
+
+/**
+ * A builder whose connection expects exactly one partial REPLACE with the given id binding.
+ */
+function expectPartialReplaceWithId(int|string $id): ManticoreQueryBuilder
+{
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with('replace into `articles` set `tag` = ? where `id` = ?', ['beta', $id])
+        ->andReturn(true);
+
+    return (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('articles');
+}
+
+it('binds a uuid document id in replaceWhereId()', function () {
+    expect(
+        expectPartialReplaceWithId('550e8400-e29b-41d4-a716-446655440000')
+            ->replaceWhereId('550e8400-e29b-41d4-a716-446655440000', ['tag' => 'beta'])
+    )->toBeTrue();
+});
+
+it('accepts a uuid in any case in replaceWhereId()', function () {
+    expect(
+        expectPartialReplaceWithId('550E8400-E29B-41D4-A716-446655440000')
+            ->replaceWhereId('550E8400-E29B-41D4-A716-446655440000', ['tag' => 'beta'])
+    )->toBeTrue();
+});
+
+it('binds a numeric string id as an integer, which is the only form Buddy accepts', function () {
+    expect(expectPartialReplaceWithId(42)->replaceWhereId('42', ['tag' => 'beta']))->toBeTrue();
+});
+
+/**
+ * Ids Manticore refuses, per its own validation: versions outside 1-8, variants outside
+ * 8/9/a/b and the nil UUID are all rejected by the server.
+ */
+dataset('invalid document ids', [
+    'not a uuid'         => 'not-a-uuid',
+    'empty'              => '',
+    'zero as a string'   => '0',
+    'negative string'    => '-5',
+    'beyond PHP_INT_MAX' => '99999999999999999999',
+    'version 0'          => '550e8400-e29b-01d4-a716-446655440000',
+    'version 9'          => '550e8400-e29b-91d4-a716-446655440000',
+    'variant c'          => '550e8400-e29b-41d4-c716-446655440000',
+    'nil uuid'           => '00000000-0000-0000-0000-000000000000',
+    'no dashes'          => '550e8400e29b41d4a716446655440000',
+    'trailing newline'   => "550e8400-e29b-41d4-a716-446655440000\n",
+    'sql fragment'       => "550e8400-e29b-41d4-a716-446655440000'); drop table docs; --",
+]);
+
+it('rejects an invalid string id in replaceWhereId()', function (string $id) {
+    manticoreQuery()->replaceWhereId($id, ['title' => 'x']);
+})->with('invalid document ids')->throws(InvalidArgumentException::class);
+
+it('validates the id even when replaceWhereId() has nothing to write', function () {
+    manticoreQuery()->replaceWhereId('not-a-uuid', []);
+})->throws(InvalidArgumentException::class);
+
+it('compiles a uuid document id into knn() without quotes', function () {
+    $q = manticoreQuery('docs')->knn('embedding', '550e8400-e29b-41d4-a716-446655440000', k: 10);
+
+    expect($q->toSql())->toContain('where knn(embedding, 10, 550e8400-e29b-41d4-a716-446655440000)');
+    expect($q->getBindings())->toBe([]);
+});
+
+it('never quotes a uuid in knn(), since Manticore reads a quoted string as text to embed', function () {
+    expect(manticoreQuery('docs')->knn('embedding', '550e8400-e29b-41d4-a716-446655440000')->toSql())
+        ->not->toContain("'");
+});
+
+it('keeps the option block after a uuid document id in knn()', function () {
+    expect(manticoreQuery('docs')->knn('embedding', '550e8400-e29b-41d4-a716-446655440000', 5, 2000)->toSql())
+        ->toContain('knn(embedding, 5, 550e8400-e29b-41d4-a716-446655440000, {ef=2000})');
+});
+
+it('still compiles an integer document id in knn()', function () {
+    expect(manticoreQuery('docs')->knn('embedding', 42, k: 10)->toSql())
+        ->toContain('knn(embedding, 10, 42)');
+});
+
+it('compiles a numeric string document id in knn() as an integer', function () {
+    expect(manticoreQuery('docs')->knn('embedding', '42', k: 10)->toSql())
+        ->toContain('knn(embedding, 10, 42)');
+});
+
+it('rejects an invalid string document id in knn()', function (string $id) {
+    manticoreQuery('docs')->knn('embedding', $id)->toSql();
+})->with('invalid document ids')->throws(InvalidArgumentException::class);
+
+it('rejects a non-identifier column when knn() gets a uuid', function () {
+    manticoreQuery('docs')->knn('embedding); drop table docs; --', '550e8400-e29b-41d4-a716-446655440000')->toSql();
+})->throws(InvalidArgumentException::class);
+
+/**
+ * A builder whose connection rejects the native partial REPLACE with the given message.
+ */
+function queryRejectingPartialReplace(string $message): ManticoreQueryBuilder
+{
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('getName')->andReturn('manticore');
+    $connection->shouldReceive('insert')
+        ->once()
+        ->andThrow(new QueryException('manticore', 'replace into', [], new Exception($message)));
+
+    return (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('articles');
+}
+
+it('does not emulate a partial replace for an integer id', function () {
+    queryRejectingPartialReplace("P01: syntax error, unexpected SET, expecting VALUES near 'SET'")
+        ->replaceWhereId(42, ['tag' => 'beta']);
+})->throws(QueryException::class, 'unexpected SET');
+
+it('does not emulate a partial replace by uuid when the server failed for another reason', function () {
+    queryRejectingPartialReplace('table articles: no such attribute')
+        ->replaceWhereId('550e8400-e29b-41d4-a716-446655440000', ['tag' => 'beta']);
+})->throws(QueryException::class, 'no such attribute');
+
+it('leaves an auto-embeddings column out of the emulated partial replace, so it is regenerated', function () {
+    $uuid = '550e8400-e29b-41d4-a716-446655440000';
+
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('getName')->andReturn('manticore');
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])
+        ->andThrow(new QueryException('manticore', 'replace into', [], new Exception("unexpected SET, expecting VALUES near 'SET'")));
+    $connection->shouldReceive('select')->with('DESC articles')->andReturn([
+        (object) ['Field' => 'id', 'Type' => 'uuid', 'Properties' => ''],
+        (object) ['Field' => 'title', 'Type' => 'text', 'Properties' => 'indexed stored'],
+        (object) ['Field' => 'tag', 'Type' => 'string', 'Properties' => ''],
+        (object) ['Field' => 'vec', 'Type' => 'float_vector', 'Properties' => 'knn'],
+        (object) ['Field' => 'other', 'Type' => 'float_vector', 'Properties' => 'knn'],
+    ]);
+    $connection->shouldReceive('select')->with('SHOW CREATE TABLE articles')->andReturn([
+        (object) ['Table' => 'articles', 'Create Table' => "CREATE TABLE articles (\nid uuid,\ntitle text,\ntag string attribute,\nvec float_vector knn_type='hnsw' hnsw_similarity='L2' model_name='sentence-transformers/all-MiniLM-L6-v2' from='title' api_timeout='10',\nother float_vector knn_type='hnsw' knn_dims='2' hnsw_similarity='L2'\n)"],
+    ]);
+    $connection->shouldReceive('select')
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === 'select * from `articles` where `id` = ? limit 1' && $bindings === [$uuid])
+        ->andReturn([(object) ['title' => 'old text', 'id' => $uuid, 'tag' => 'kept', 'vec' => '0.5,0.6', 'other' => '0.1,0.2']]);
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with('replace into `articles` (`title`, `id`, `tag`, `other`) values (?, ?, ?, (0.1, 0.2))', ['new text', $uuid, 'kept'])
+        ->andReturn(true);
+
+    $query = (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('articles');
+
+    expect($query->replaceWhereId($uuid, ['title' => 'new text']))->toBeTrue();
+});
+
+it('renders a float highlight option as a bare number', function () {
+    expect(manticoreQuery('docs')->highlight('title', ['limit_words' => 1.5])->toSql())
+        ->toContain("HIGHLIGHT({limit_words=1.5}, 'title')");
+});
+
+it('checks existence by selecting one row, since Manticore has no select exists()', function (array $rows, bool $expected) {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')
+        ->once()
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === 'select * from `docs` where `tag` = ? limit 1' && $bindings === ['a'])
+        ->andReturn($rows);
+
+    $query = (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('docs')->where('tag', 'a');
+
+    expect($query->exists())->toBe($expected);
+    expect($query->toSql())->toBe('select * from `docs` where `tag` = ?');
+})->with([
+    'a row'   => [[(object) ['id' => 1]], true],
+    'no rows' => [[], false],
+]);
+
+it('starts keyset paging without a null filter, which Manticore rejects on an id', function () {
+    expect(manticoreQuery('docs')->forPageAfterId(2, null)->toSql())
+        ->toBe('select * from `docs` order by `id` asc limit 2');
+
+    expect(manticoreQuery('docs')->forPageBeforeId(2, null)->toSql())
+        ->toBe('select * from `docs` order by `id` desc limit 2');
+});
+
+it('continues keyset paging from the last id', function () {
+    $after = manticoreQuery('docs')->orderBy('id', 'desc')->forPageAfterId(2, 7);
+    expect($after->toSql())->toBe('select * from `docs` where `id` > ? order by `id` asc limit 2');
+    expect($after->getBindings())->toBe([7]);
+
+    $before = manticoreQuery('docs')->orderBy('id')->forPageBeforeId(2, 7);
+    expect($before->toSql())->toBe('select * from `docs` where `id` < ? order by `id` desc limit 2');
+    expect($before->getBindings())->toBe([7]);
+});
+
+it('leaves knn() by a numeric string id to the server, without reading the vector first', function () {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')
+        ->once()
+        ->withArgs(fn (string $sql) => $sql === 'select * from `docs` where knn(embedding, 10, 42)')
+        ->andReturn([]);
+
+    (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('docs')->knn('embedding', '42', k: 10)->get();
+});
+
+it('leaves the table out of updated columns, since Manticore rejects qualified columns', function () {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('update')
+        ->once()
+        ->with('update `docs` set `views` = ?, `updated_at` = ? where `id` = ?', [2, 1700000000, 1])
+        ->andReturn(1);
+
+    (new ManticoreQueryBuilder(
+        $connection,
+        new ManticoreQueryGrammar($connection),
+        new ManticoreProcessor
+    ))->from('docs')->where('id', 1)->update(['views' => 2, 'docs.updated_at' => 1700000000]);
+});
+
+it('keeps a json path intact when compiling updated columns', function () {
+    $query = manticoreQuery('docs');
+
+    expect($query->getGrammar()->compileUpdate($query, ['meta->a' => 1]))
+        ->toContain('json_set(`meta`');
+});

@@ -2,6 +2,7 @@
 
 namespace ManticoreEloquent\Database;
 
+use DateTimeInterface;
 use Illuminate\Database\MySqlConnection;
 use ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
@@ -11,6 +12,24 @@ use ManticoreEloquent\Database\Schema\ManticoreSchemaGrammar;
 
 class ManticoreConnection extends MySqlConnection
 {
+    /**
+     * A timestamp column holds a Unix integer, so a date is sent as one. As a date string it
+     * would be rejected by UPDATE, and stored as 0 by INSERT.
+     *
+     * @param  array  $bindings
+     * @return array
+     */
+    public function prepareBindings(array $bindings)
+    {
+        foreach ($bindings as $key => $value) {
+            if ($value instanceof DateTimeInterface) {
+                $bindings[$key] = $value->getTimestamp();
+            }
+        }
+
+        return parent::prepareBindings($bindings);
+    }
+
     /**
      * Use the Manticore query grammar in place of the MySQL one.
      *

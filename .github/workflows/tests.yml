@@ -35,9 +35,12 @@ jobs:
       - run: composer update --prefer-dist --no-interaction --no-progress
       - run: vendor/bin/pest --testsuite=Unit,Feature
 
+  # Runs every suite, not only Integration, so its report is what the README's tests badge shows.
   integration:
     runs-on: ubuntu-latest
     name: Integration · live Manticore
+    permissions:
+      contents: write
     services:
       manticore:
         image: manticoresearch/manticore
@@ -58,7 +61,22 @@ jobs:
             if mysql -h127.0.0.1 -P9306 -e 'SHOW TABLES;' 2>/dev/null; then break; fi
             sleep 2
           done
-      - run: vendor/bin/pest --testsuite=Integration
+      - run: vendor/bin/pest --log-junit build/junit.xml
         env:
           MANTICORE_HOST: 127.0.0.1
           MANTICORE_PORT: 9306
+      - name: Publish the tests badge
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          php .github/scripts/tests-badge.php build/junit.xml "$RUNNER_TEMP/tests.json"
+          cd "$RUNNER_TEMP"
+          git init -q -b badges badge
+          mv tests.json badge/
+          cd badge
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tests.json
+          git commit -qm 'Update the tests badge'
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:badges

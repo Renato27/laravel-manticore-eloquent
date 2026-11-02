@@ -5,7 +5,9 @@ namespace ManticoreEloquent\Database\Query\Grammars;
 use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
+use Illuminate\Support\Str;
 use InvalidArgumentException;
+use ManticoreEloquent\Database\Query\DocumentId;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
 
 class ManticoreQueryGrammar extends MySqlGrammar
@@ -27,7 +29,11 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * floats and the integer k are inlined as numeric literals — Manticore rejects quoted
      * (bound) values in the tuple, and the builder has already cast them, so this is
      * injection-safe. Option names are whitelisted and their values cast to the scalar type
-     * Manticore expects, for the same reason.
+     * Manticore expects, for the same reason. A UUID document id stays unquoted on purpose:
+     * Manticore reads a quoted third argument as text to embed, which on an auto-embeddings
+     * column returns unrelated documents without any error. A select never sends this form,
+     * since the builder swaps the id for its vector first. Anything else that does gets a
+     * syntax error, and the id is validated, so it cannot carry anything but a UUID.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where
@@ -44,7 +50,9 @@ class ManticoreQueryGrammar extends MySqlGrammar
             }
 
             $column = $where['column'];
-            $target = (string) (int) $where['vector'];
+            $target = is_string($where['vector'])
+                ? (string) DocumentId::normalize($where['vector'])
+                : (string) (int) $where['vector'];
         }
 
         $sql = 'knn(' . $column . ', ' . (int) $where['k'] . ', ' . $target;
@@ -189,6 +197,45 @@ class ManticoreQueryGrammar extends MySqlGrammar
         $insert = $this->compileInsert($query, $values);
 
         return preg_replace('/^insert into/i', 'replace into', $insert, 1);
+    }
+
+    /**
+     * Partial REPLACE: REPLACE INTO ... SET ... WHERE id = ?. Expression values (e.g. a
+     * vector tuple) are inlined; every other value is a binding, and the id binding goes last.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $values
+     * @return string
+     */
+    public function compileReplaceSet(Builder $query, array $values): string
+    {
+        $assignments = [];
+
+        foreach ($values as $column => $value) {
+            $assignments[] = $this->wrap($column).' = '.$this->parameter($value);
+        }
+
+        return 'replace into '.$this->wrapTable($query->from)
+            .' set '.implode(', ', $assignments)
+            .' where '.$this->wrap('id').' = ?';
+    }
+
+    /**
+     * Eloquent qualifies updated_at with the table, and Manticore rejects `table`.`column`.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  array  $values
+     * @return string
+     */
+    protected function compileUpdateColumns(Builder $query, array $values)
+    {
+        $columns = [];
+
+        foreach ($values as $key => $value) {
+            $columns[$this->isJsonSelector($key) ? $key : Str::afterLast($key, '.')] = $value;
+        }
+
+        return parent::compileUpdateColumns($query, $columns);
     }
 
     /**

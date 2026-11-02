@@ -96,6 +96,36 @@ it('skips the implicit id column', function () {
     expect($sql)->toContain('`title` string');
 });
 
+it('declares a uuid id column instead of skipping it', function () {
+    $sql = manticoreSchemaSql('articles_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->uuid('id');
+        $blueprint->string('title');
+    })[0];
+
+    expect($sql)->toBe('create table `articles_rt` (`id` uuid, `title` string)');
+});
+
+it('ignores primary() on a uuid id, since Manticore has no indexes to declare', function () {
+    $sql = manticoreSchemaSql('articles_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->uuid('id')->primary();
+        $blueprint->string('title');
+    });
+
+    expect($sql)->toBe(['create table `articles_rt` (`id` uuid, `title` string)']);
+});
+
+it('still skips an id() column, which stays implicit', function () {
+    $sql = manticoreSchemaSql('articles_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->id();
+        $blueprint->string('title');
+    })[0];
+
+    expect($sql)->toBe('create table `articles_rt` (`title` string)');
+});
+
 it('spells out indexed/stored options on a text column', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();

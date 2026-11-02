@@ -1,21 +1,22 @@
 # Laravel Manticore Eloquent
 
+[![Latest version][badge-version]][packagist]
+[![Total downloads][badge-downloads]][packagist-stats]
+[![Tests passing][badge-tests]][workflow]
+[![CI][badge-ci]][workflow]
+[![PHP version][badge-php]][packagist]
+[![Laravel version][badge-laravel]][packagist]
+[![License][badge-license]](LICENSE)
+
 Use **Eloquent natively on Manticore Search**. This package registers Manticore as a
-first-class Laravel database connection over the **MySQL protocol** (port `9306`), so the
-*entire* Eloquent / Query Builder API works unchanged — `where`, `find`, `create`,
-`update`, `delete`, `paginate`, `chunk`, scopes, casts, relations, migrations — plus
-Manticore helpers (`match`, `knn`, `highlight`, `option`, `maxMatches`, `facet`, `replace`).
+first-class Laravel database connection over the **MySQL protocol** (port `9306`), so
+`where`, `find`, `create`, `update`, `delete`, `paginate`, `chunk`, scopes, casts and
+migrations work the way you already write them, plus Manticore helpers (`match`, `knn`,
+`highlight`, `option`, `maxMatches`, `facet`, `replace`).
 
-> This is a separate, ground-up library. If you use the older
-> `renatomaldonado/manticore-laravel-search` (HTTP/JSON fluent builder + consolidation),
-> keep using it for those features — this package does not replace it, it sits beside it.
-
-## Why a database driver?
-
-"Make Eloquent work, just pointing at Manticore instead of the DB" is, by definition, a
-Laravel **database driver**. Manticore speaks the MySQL wire protocol, and all of Eloquent
-is built on a `Connection` + `Grammar`. So instead of re-implementing Eloquent method by
-method, we implement a thin Manticore grammar and inherit the whole framework.
+Manticore speaks the MySQL wire protocol, and all of Eloquent is built on a `Connection` +
+`Grammar`. So instead of re-implementing Eloquent method by method, this is a thin Manticore
+grammar that inherits the whole framework.
 
 ## Requirements
 
@@ -31,23 +32,23 @@ method, we implement a thin Manticore grammar and inherit the whole framework.
 composer require renatomaldonado/laravel-manticore-eloquent
 ```
 
+Configure the connection in `.env`. Every value is optional:
+
+```dotenv
+MANTICORE_CONNECTION=manticore
+MANTICORE_HOST=127.0.0.1
+MANTICORE_PORT=9306        # MySQL protocol port
+MANTICORE_USERNAME=
+MANTICORE_PASSWORD=
+MANTICORE_ENGINE=          # columnar, rowwise or empty
+```
+
+The package auto-registers a `manticore` connection in `config/database.connections`, so you
+don't have to edit `config/database.php`. To change the config file itself, publish it:
+
 ```bash
 php artisan vendor:publish --provider="ManticoreEloquent\ManticoreEloquentServiceProvider" --tag=config
 ```
-
-Configure `config/manticore-eloquent.php` (or the matching env vars):
-
-```php
-'connection' => env('MANTICORE_CONNECTION', 'manticore'),
-'host'       => env('MANTICORE_HOST', '127.0.0.1'),
-'port'       => env('MANTICORE_PORT', 9306),   // MySQL protocol port
-'username'   => env('MANTICORE_USERNAME'),
-'password'   => env('MANTICORE_PASSWORD'),
-'engine'     => env('MANTICORE_ENGINE'),       // 'columnar' | 'rowwise' | null
-```
-
-The package auto-registers a `manticore` connection in `config/database.connections`
-derived from this file, so you don't have to edit `config/database.php`.
 
 ## Usage
 
@@ -62,7 +63,7 @@ class Article extends ManticoreModel
 {
     protected $table = 'articles_rt';
     protected $guarded = [];
-    protected $casts = ['published' => 'boolean', 'created_at' => 'datetime'];
+    protected $casts = ['published' => 'boolean'];
 }
 
 Article::where('published', true)->match('laravel')->orderBy('created_at', 'desc')->paginate();
@@ -95,192 +96,47 @@ Company::query()->where('id', 1)->first();          // relational DB
 Company::manticore()->match('fintech')->paginate(); // Manticore
 ```
 
-### Manticore-specific helpers
+## Before you start
 
-```php
-Article::manticore()
-    ->match('cloud native', 'title')   // MATCH('@title cloud native')
-    ->where('views', '>', 100)
-    ->option('ranker', 'sph04')        // OPTION ranker=sph04
-    ->maxMatches(5000)                 // OPTION max_matches=5000
-    ->facet('category')                // FACET category
-    ->get();
+Manticore is not MySQL. It has no transactions, `update()` cannot change full-text fields,
+and relations only work when the related model is in your relational database.
+[Known limits](docs/known-limits.md) has the details.
 
-// Full-document write (REPLACE INTO) — needed to update full-text fields
-Article::manticore()->replace(['id' => 1, 'title' => 'New', 'body' => '…']);
-```
+## Documentation
 
-Option names and values are never bound — Manticore's `OPTION` and `knn()` blocks take bare
-keywords, not quoted strings. There is no list of allowed options (the server keeps adding
-them), so instead both sides are checked for shape: a name must be a plain identifier, and a
-value must be a number, a bool, or a bare word. Anything richer is explicit:
+| Guide | What it covers |
+|---|---|
+| [Querying](docs/querying.md) | Full-text `match`, `option`, `maxMatches`, `facet`, `highlight` |
+| [Writing documents](docs/writing-documents.md) | `update` vs `replace`, partial `replaceWhereId` |
+| [Vector search](docs/vector-search.md) | `knn`, "more like this document", `VectorCast` |
+| [UUID document ids](docs/uuid-document-ids.md) | The same primary key in your database and in Manticore |
+| [Migrations](docs/migrations.md) | Column types, vector columns, table options |
+| [Known limits](docs/known-limits.md) | What differs from MySQL: relations, timestamps, transactions, JOINs |
+| [Architecture](docs/ARCHITECTURE.md) | The design and the SQL differences handled |
 
-```php
-->option('ranker', DB::raw("expr('sum(lcs*user_weight)')"))  // passed through verbatim
-->option('ranker', $request->input('ranker'))                // throws unless it's a bare word
-```
+## Related packages
 
-`max_matches` is raised automatically when you page beyond Manticore's default cap of
-1000 rows, so deep `paginate()`/`offset()` just works.
+- `renatomaldonado/laravel-manticore-sync` keeps a relational database in sync with Manticore
+  automatically.
+- `renatomaldonado/manticore-laravel-search` is an older, separate library (HTTP/JSON fluent
+  builder + consolidation). If you use it, keep using it for those features: this package
+  sits beside it and does not replace it.
 
-#### KNN / vector search
+## Contributing
 
-Requires the column to be declared as a `floatVector` in the migration (see below).
-
-```php
-// knn(`embedding`, 10, (0.12, 0.98, …))  — pair with knn_dist() to read the score
-Article::manticore()
-    ->knn('embedding', $queryVector, k: 10)   // optional ef: ->knn(..., ef: 2000)
-    ->selectRaw('*, knn_dist() as distance')
-    ->get();
-
-// "more like this document": pass a document id instead of a vector. Manticore returns
-// the neighbours, never the source document itself.
-Article::manticore()->knn('embedding', $article->id, k: 10)->get();
-
-// The 4th argument is the whole option block — knn(…, {ef=2000, rescore=1}). Any option
-// Manticore accepts there goes through; float options need a float (3.0, not 3).
-Article::manticore()
-    ->knn('embedding', $queryVector, k: 10, ef: ['ef' => 2000, 'rescore' => true])
-    ->get();
-```
-
-Writing vectors needs the `VectorCast`, because Manticore only accepts a vector as a bare
-tuple literal — `(0.1, 0.2)` — which no bound parameter can express:
-
-```php
-use ManticoreEloquent\Eloquent\Casts\VectorCast;
-
-class Article extends ManticoreModel
-{
-    protected $casts = ['embedding' => VectorCast::class];
-}
-
-Article::create(['embedding' => [0.1, 0.2, 0.3]]);  // → values ((0.1, 0.2, 0.3))
-Article::query()->where('id', 1)->first()->embedding; // → [0.1, 0.2, 0.3]
-```
-
-Two things to know about vectors once they are stored: a `cosine` column normalizes them,
-so the values you read back are the unit vector, not what you wrote (`L2` round-trips
-exactly); and Manticore refuses `UPDATE` on a KNN-indexed column, so changing a vector
-means rewriting the row with `replace()`:
-
-```php
-DB::connection('manticore')->table('articles')
-    ->replace([(new Article(['id' => 1, 'embedding' => [0.4, 0.5, 0.6]]))->getAttributes()]);
-```
-
-#### Highlighting
-
-```php
-Article::manticore()
-    ->match('cloud native')
-    ->highlight('body', ['before_match' => '<mark>', 'after_match' => '</mark>'])
-    ->get();   // each row gets a `highlight` column (alias configurable)
-```
-
-## Migrations
-
-Manticore real-time indexes are created with standard Laravel migrations. The schema
-grammar maps Laravel column types to Manticore types and adds helpers for Manticore-only
-types (`mva`, `mva64`, `floatVector`).
-
-```php
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-
-return new class extends Migration {
-    public function up(): void
-    {
-        Schema::connection('manticore')->create('articles_rt', function (Blueprint $table) {
-            // `id` is implicit in Manticore — no need to declare it.
-            $table->text('body');                       // text  (full-text indexed)
-            $table->string('title');                    // string attribute
-            $table->integer('views');                   // integer
-            $table->bigInteger('author_id');            // bigint
-            $table->float('score');                     // float
-            $table->boolean('published');               // bool
-            $table->json('meta');                       // json
-            $table->timestamp('created_at');            // timestamp
-            $table->mva('tag_ids');                     // multi  (uint set)
-            $table->mva64('big_ids');                   // multi64
-            $table->floatVector('embedding', dims: 384); // float_vector for KNN
-            $table->text('summary')->indexed()->stored();// spell out text options
-
-            // Table-level Manticore options (trailing key='value' on CREATE TABLE)
-            $table->minInfixLen(2);                       // infix search
-            $table->morphology('stem_en');                // or ->manticoreOptions([...])
-            // $table->engine = 'columnar';
-        });
-    }
-
-    public function down(): void
-    {
-        Schema::connection('manticore')->dropIfExists('articles_rt');
-    }
-};
-```
-
-Type mapping: `string/char → string`, `text → text`, `integer/tinyInteger/smallInteger/mediumInteger → integer`,
-`bigInteger → bigint`, `float/double/decimal → float`, `boolean → bool`, `json/jsonb → json`,
-`timestamp/dateTime/date → timestamp`, plus `mva`, `mva64`, `floatVector`. Text columns
-accept `->indexed()`/`->stored()`, and tables accept `minInfixLen()`, `morphology()` and
-the generic `manticoreOptions([...])`.
-
-`floatVector()` takes `dims`, `knnType` (default `hnsw`) and `similarity` (default `L2`,
-e.g. `cosine`); any further column option goes in a trailing array, rendered as `key='value'`
-— `hnsw_m`, `hnsw_ef_construction`, `quantization` (`8bit`, `1bit`, `1bitsimple`), and
-anything else Manticore accepts there:
-
-```php
-$table->floatVector('content_vector', dims: 768, similarity: 'cosine', knnOptions: [
-    'hnsw_m' => 16,
-    'hnsw_ef_construction' => 200,
-    'quantization' => '8bit',
-]);
-// → `content_vector` float_vector knn_type='hnsw' knn_dims='768' hnsw_similarity='cosine' hnsw_m='16' hnsw_ef_construction='200' quantization='8bit'
-```
-
-## Known limits & gotchas
-
-- **No transactions / row locks.** Manticore has none; `lock()` / `->lockForUpdate()` are
-  no-ops, and DB transactions should not be relied on.
-- **`update()` vs `replace()`.** Manticore `UPDATE` only changes attribute (non-text)
-  columns in place. To rewrite a full document (including `text` fields) use `replace()`.
-- **`id` is special.** Manticore assigns the document id; migrations skip any `id` column.
-- **JOINs are limited.** Cross-index JOINs in Manticore are restricted; prefer denormalized
-  indexes. Eager-loading relations across a relational connection still works as usual.
-- **Qualified columns break.** Manticore rejects `` `table`.`column` ``, so `Model::find()`
-  (which qualifies the key) fails — use `->where('id', $id)->first()`.
-- **Prepared statements.** The driver forces emulated prepares (Manticore's server-side
-  prepare support is limited), so bindings — including `MATCH(?)` — are interpolated by PDO.
-
-## Tests
-
-```bash
-composer install
-vendor/bin/pest --testsuite=Unit,Feature   # offline tests (no server needed)
-# Integration tests require a running Manticore on the configured MySQL port
-# (defaults to 9306; override with MANTICORE_HOST / MANTICORE_PORT):
-MANTICORE_HOST=127.0.0.1 MANTICORE_PORT=9306 vendor/bin/pest --testsuite=Integration
-```
-
-A quick local Manticore for testing:
-
-```bash
-docker run --name manticore -p 9306:9306 -p 9308:9308 manticoresearch/manticore
-```
-
-Coverage (requires PCOV or Xdebug):
-
-```bash
-composer test:coverage        # full report
-composer test:coverage-min    # fails under 95%
-```
-
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the SQL differences handled.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the tests.
 
 ## License
 
 [MIT](LICENSE)
+
+[packagist]: https://packagist.org/packages/renatomaldonado/laravel-manticore-eloquent
+[packagist-stats]: https://packagist.org/packages/renatomaldonado/laravel-manticore-eloquent/stats
+[workflow]: https://github.com/Renato27/laravel-manticore-eloquent/actions/workflows/tests.yml
+[badge-version]: https://img.shields.io/packagist/v/renatomaldonado/laravel-manticore-eloquent
+[badge-downloads]: https://img.shields.io/packagist/dt/renatomaldonado/laravel-manticore-eloquent
+[badge-tests]: https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FRenato27%2Flaravel-manticore-eloquent%2Fbadges%2Ftests.json
+[badge-ci]: https://img.shields.io/github/actions/workflow/status/Renato27/laravel-manticore-eloquent/tests.yml?branch=master&label=CI
+[badge-php]: https://img.shields.io/packagist/dependency-v/renatomaldonado/laravel-manticore-eloquent/php
+[badge-laravel]: https://img.shields.io/packagist/dependency-v/renatomaldonado/laravel-manticore-eloquent/illuminate/database?label=laravel
+[badge-license]: https://img.shields.io/packagist/l/renatomaldonado/laravel-manticore-eloquent
