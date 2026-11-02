@@ -749,3 +749,31 @@ it('leaves a delete by id without any extra filter', function () {
 it('wraps each index of a table list', function () {
     expect(manticoreQuery('a,b')->limit(1)->toSql())->toBe('select * from `a`, `b` limit 1');
 });
+
+it('escapes the search syntax in matchText()', function () {
+    expect(manticoreQuery()->matchText('a(b)|c-d!e@f~g"h&i/j^k$l=m<n\\o')->getBindings())
+        ->toBe(['a\\(b\\)\\|c\\-d\\!e\\@f\\~g\\"h\\&i\\/j\\^k\\$l\\=m\\<n\\\\o']);
+});
+
+it('prefixes the field in matchText()', function () {
+    expect(manticoreQuery()->matchText('a', 'title')->getBindings())->toBe(['@title a']);
+});
+
+it('puts match() first and merges the next one into it', function () {
+    $q = manticoreQuery()->where('a', 1)->match('x')->where('b', 2)->match('y');
+
+    expect($q->toSql())->toBe(unlimited('select * from `companies` where MATCH(?) and `a` = ? and `b` = ?'))
+        ->and($q->getBindings())->toBe(['(x) (y)', 1, 2]);
+});
+
+it('leaves an or match() where it is, for the server to reject', function () {
+    $q = manticoreQuery()->where('a', 1)->match('x', null, 'or');
+
+    expect($q->toSql())->toBe(unlimited('select * from `companies` where `a` = ? or MATCH(?)'))
+        ->and($q->getBindings())->toBe([1, 'x']);
+});
+
+it('compiles whereFullText() to MATCH', function () {
+    expect(manticoreQuery()->whereFullText('title', 'a(b')->getBindings())->toBe(['@title a\\(b'])
+        ->and(manticoreQuery()->whereFullText(['title', 'body'], 'x')->getBindings())->toBe(['@(title,body) x']);
+});

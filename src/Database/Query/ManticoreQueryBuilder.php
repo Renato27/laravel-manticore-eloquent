@@ -21,8 +21,9 @@ class ManticoreQueryBuilder extends Builder
     public array $options = [];
 
     /**
-     * Add a full-text MATCH() condition. Pass a $field to scope it (e.g. 'title'),
-     * or leave it null to search every field.
+     * Add a full-text MATCH() condition, written in Manticore's search syntax. For text typed by
+     * a user, use matchText(). Pass a $field to scope it (e.g. 'title'), or leave it null to
+     * search every field. Manticore takes one MATCH(), so several calls are combined into it.
      *
      * @param  string  $query
      * @param  string|null  $field
@@ -35,15 +36,50 @@ class ManticoreQueryBuilder extends Builder
             ? '@' . $field . ' ' . $query
             : $query;
 
-        $this->wheres[] = [
-            'type'    => 'Match',
-            'value'   => $expression,
-            'boolean' => $boolean,
-        ];
+        $where = ['type' => 'Match', 'value' => $expression, 'boolean' => $boolean];
 
-        $this->addBinding($expression, 'where');
+        if ($boolean !== 'and') {
+            $this->wheres[] = $where;
+            $this->addBinding($expression, 'where');
+        } elseif (($this->wheres[0]['type'] ?? null) === 'Match') {
+            $this->wheres[0]['value'] = '(' . $this->wheres[0]['value'] . ') (' . $expression . ')';
+            $this->bindings['where'][0] = $this->wheres[0]['value'];
+        } else {
+            array_unshift($this->wheres, $where);
+            array_unshift($this->bindings['where'], $expression);
+        }
 
         return $this;
+    }
+
+    /**
+     * Add a full-text MATCH() condition for plain words, such as text typed by a user: nothing
+     * in it is read as search syntax.
+     *
+     * @param  string  $text
+     * @param  string|null  $field
+     * @param  string  $boolean
+     * @return static
+     */
+    public function matchText(string $text, ?string $field = null, string $boolean = 'and'): static
+    {
+        return $this->match(addcslashes($text, '\\()|-!@~"&/^$=<'), $field, $boolean);
+    }
+
+    /**
+     * Add a full-text condition on one or several fields. Manticore has it as MATCH().
+     *
+     * @param  string|array  $columns
+     * @param  string  $value
+     * @param  array  $options
+     * @param  string  $boolean
+     * @return static
+     */
+    public function whereFullText($columns, $value, array $options = [], $boolean = 'and')
+    {
+        $columns = (array) $columns;
+
+        return $this->matchText($value, count($columns) > 1 ? '(' . implode(',', $columns) . ')' : $columns[0], $boolean);
     }
 
     /**

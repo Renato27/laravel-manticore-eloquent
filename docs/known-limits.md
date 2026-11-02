@@ -6,7 +6,7 @@
   `withCount` do not, because Manticore has no subqueries and these rely on them or on a join.
   Run the two queries yourself instead.
 - **`match()` on a relation collides with a method of Eloquent's own.** `$post->notes()->match('x')`
-  throws a `TypeError`. Use `$post->notes()->getQuery()->match('x')`.
+  throws a `TypeError`. Use `$post->notes()->getQuery()->match('x')` or `matchText()`.
 - **No transactions / row locks.** Manticore has none; `lock()` / `->lockForUpdate()` are
   no-ops, and DB transactions should not be relied on.
 - **`update()` and `delete()` take no `limit()` or `orderBy()`,** which fail with an error. For the

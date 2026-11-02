@@ -21,6 +21,19 @@ Article::query()
 `get()` returns the matches. Facets come back as an extra result set, so reading them usually
 means going through the raw statement.
 
+`match()` takes Manticore's search syntax, such as `alpha -beta` or `@title cloud`, so a stray
+`(` in it is an error. For text typed by a user, use `matchText()`, which treats every character
+as plain text, or Laravel's `whereFullText()`, which does the same:
+
+```php
+Article::query()->matchText($request->input('q'))->get();
+Article::query()->matchText($request->input('q'), 'title')->get();
+Article::query()->whereFullText(['title', 'body'], $request->input('q'))->get();
+```
+
+Manticore takes one `MATCH()` per query, so several calls are combined into it. It cannot be
+combined with an `or`: `orWhere()` next to `match()` fails with an error.
+
 Option names and values are never bound — Manticore's `OPTION` and `knn()` blocks take bare
 keywords, not quoted strings. There is no list of allowed options (the server keeps adding
 them), so instead both sides are checked for shape: a name must be a plain identifier, and a
