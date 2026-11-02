@@ -3,14 +3,10 @@
 use Illuminate\Support\Facades\DB;
 
 /**
- * Downloads an embedding model, so it only runs when asked to:
- * MANTICORE_TEST_EMBEDDINGS=1 vendor/bin/pest tests/Integration/AutoEmbeddingsTest.php
+ * Downloads an embedding model, so phpunit.xml leaves its group out of a normal run. Run it with:
+ * vendor/bin/pest --group=embeddings
  */
 beforeEach(function () {
-    if (! getenv('MANTICORE_TEST_EMBEDDINGS')) {
-        $this->markTestSkipped('Set MANTICORE_TEST_EMBEDDINGS=1 to run it.');
-    }
-
     DB::connection('manticore')->statement('DROP TABLE IF EXISTS it_embedded');
     DB::connection('manticore')->statement(
         "CREATE TABLE it_embedded (id uuid, title text, tag string attribute, vec float_vector knn_type='hnsw' "
@@ -19,9 +15,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    if (getenv('MANTICORE_TEST_EMBEDDINGS')) {
-        DB::connection('manticore')->statement('DROP TABLE IF EXISTS it_embedded');
-    }
+    DB::connection('manticore')->statement('DROP TABLE IF EXISTS it_embedded');
 });
 
 it('regenerates the vector when a uuid document is partially replaced', function () {
@@ -41,4 +35,4 @@ it('regenerates the vector when a uuid document is partially replaced', function
     expect($document->title)->toBe('quantum mechanics course')
         ->and($document->tag)->toBe('x')
         ->and($table()->knn('vec', $bag, k: 5)->pluck('title')->all())->toBe(['quantum physics lecture', 'yellow handbag']);
-});
+})->group('embeddings');

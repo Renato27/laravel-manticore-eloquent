@@ -14,6 +14,11 @@
             <directory>tests/Integration</directory>
         </testsuite>
     </testsuites>
+    <groups>
+        <exclude>
+            <group>embeddings</group>
+        </exclude>
+    </groups>
     <php>
         <env name="MANTICORE_HOST" value="127.0.0.1"/>
         <env name="MANTICORE_PORT" value="9306"/>
