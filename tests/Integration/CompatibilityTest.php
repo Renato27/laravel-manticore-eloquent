@@ -169,3 +169,51 @@ it('ignores locks', function () {
     expect(compatTable()->where('id', 1)->lockForUpdate()->count())->toBe(1)
         ->and(compatTable()->where('id', 1)->sharedLock()->first()->id)->toBe(1);
 });
+
+it('counts by a column, which the server only takes as a star or distinct', function () {
+    expect(compatTable()->count('views'))->toBe(3)
+        ->and(CompatibleDocument::count('id'))->toBe(3)
+        ->and(compatTable()->distinct()->count('published'))->toBe(2);
+});
+
+it('orders at random', function () {
+    expect(compatTable()->inRandomOrder()->get())->toHaveCount(3)
+        ->and(compatTable()->inRandomOrder()->limit(1)->get())->toHaveCount(1);
+});
+
+it('runs the other where clauses of the Laravel docs', function () {
+    expect(CompatibleDocument::whereNot('id', 1)->orderBy('id')->pluck('id')->all())->toBe([2, 3])
+        ->and(CompatibleDocument::whereNot(fn ($q) => $q->where('id', 1)->orWhere('id', 2))->pluck('id')->all())->toBe([3])
+        ->and(CompatibleDocument::whereNotBetween('views', [15, 25])->orderBy('id')->pluck('id')->all())->toBe([1, 3])
+        ->and(CompatibleDocument::whereAny(['views', 'id'], '=', 1)->pluck('id')->all())->toBe([1])
+        ->and(CompatibleDocument::whereAll(['views', 'id'], '>', 1)->orderBy('id')->pluck('id')->all())->toBe([2, 3])
+        ->and(CompatibleDocument::whereRaw('id = ?', [1])->pluck('id')->all())->toBe([1])
+        ->and(CompatibleDocument::when(true, fn ($q) => $q->where('id', 1))->pluck('id')->all())->toBe([1]);
+});
+
+it('filters a date column by a range of date strings', function () {
+    compatTable()->where('id', 1)->update(['views' => 10]);
+    Schema::connection('manticore')->table('compat_docs', fn (Blueprint $table) => $table->timestamp('seen_at'));
+    compatTable()->where('id', 2)->update(['seen_at' => '2026-03-15 12:00:00']);
+
+    expect(compatTable()->whereBetween('seen_at', ['2026-03-15 00:00:00', '2026-03-15 23:59:59'])->pluck('id')->all())->toBe([2])
+        ->and(compatTable()->where('seen_at', '>=', '2026-03-16')->count())->toBe(0);
+});
+
+it('runs the other ordering, grouping and iterating methods of the Laravel docs', function () {
+    $count = 0;
+    compatTable()->orderBy('id')->each(function () use (&$count) {
+        $count++;
+    });
+
+    expect($count)->toBe(3)
+        ->and(compatTable()->lazyById(2)->count())->toBe(3)
+        ->and(compatTable()->orderByDesc('id')->value('id'))->toBe(3)
+        ->and(compatTable()->orderByRaw('views desc')->value('id'))->toBe(3)
+        ->and(compatTable()->orderBy('id')->reorder('id', 'desc')->value('id'))->toBe(3)
+        ->and(compatTable()->select('id')->addSelect('slug')->where('id', 1)->first()->slug)->toBe('s1')
+        ->and(compatTable()->selectRaw('published, count(*) as c')->groupByRaw('published')->havingRaw('c > 1')->get())->toHaveCount(1)
+        ->and(compatTable()->selectRaw('published, count(*) as c')->groupBy('published')->havingBetween('c', [2, 3])->get())->toHaveCount(1)
+        ->and(compatTable()->where('id', 1)->toRawSql())->toContain('`id` = 1')
+        ->and(compatTable()->where('slug', 'a')->toRawSql())->toContain("`slug` = 'a'");
+});

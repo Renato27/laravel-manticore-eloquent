@@ -25,7 +25,8 @@ class ManticoreSchemaGrammar extends Grammar
      */
     public function compileCreate(Blueprint $blueprint, Fluent $command, $connection = null): string
     {
-        $columns = implode(', ', $this->getManticoreColumns($blueprint));
+        // A table needs a column to be declared, and the id is the one that is always there.
+        $columns = implode(', ', $this->getManticoreColumns($blueprint) ?: ['`id` bigint']);
 
         $sql = sprintf('create table %s (%s)', $this->wrapTable($blueprint), $columns);
 
@@ -80,10 +81,12 @@ class ManticoreSchemaGrammar extends Grammar
     {
         $table = $this->wrapTable($blueprint);
 
-        return array_map(
-            fn (string $column) => "alter table {$table} add column {$column}",
-            $this->getManticoreColumns($blueprint)
-        );
+        // Laravel 10 runs one command for all the added columns, and later versions one for each.
+        $columns = isset($command->column)
+            ? [$this->wrap($command->column).' '.$this->getType($command->column)]
+            : $this->getManticoreColumns($blueprint);
+
+        return array_map(fn (string $column) => "alter table {$table} add column {$column}", $columns);
     }
 
     /**
@@ -131,6 +134,49 @@ class ManticoreSchemaGrammar extends Grammar
 
             return 'alter table '.$this->wrapTable($blueprint).' modify column '.$this->wrap($column).' bigint';
         }, $columns);
+    }
+
+    /**
+     * Manticore has no foreign keys to declare, so the column stays and the constraint is left out,
+     * as with indexes.
+     *
+     * @return null
+     */
+    public function compileForeign(Blueprint $blueprint, Fluent $command)
+    {
+        return null;
+    }
+
+    /**
+     * See compileForeign().
+     *
+     * @return null
+     */
+    public function compileDropForeign(Blueprint $blueprint, Fluent $command)
+    {
+        return null;
+    }
+
+    /**
+     * A text field is already full-text indexed.
+     *
+     * @see https://manual.manticoresearch.com/Creating_a_table/Data_types
+     *
+     * @return null
+     */
+    public function compileFulltext(Blueprint $blueprint, Fluent $command)
+    {
+        return null;
+    }
+
+    /**
+     * See compileFulltext().
+     *
+     * @return null
+     */
+    public function compileDropFullText(Blueprint $blueprint, Fluent $command)
+    {
+        return null;
     }
 
     /**

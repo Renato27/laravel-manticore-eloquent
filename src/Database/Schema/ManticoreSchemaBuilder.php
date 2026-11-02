@@ -46,6 +46,48 @@ class ManticoreSchemaBuilder extends Builder
     }
 
     /**
+     * Manticore has no foreign keys.
+     *
+     * @param  string  $table
+     * @return array<int, array<string, mixed>>
+     */
+    public function getForeignKeys($table): array
+    {
+        return [];
+    }
+
+    /**
+     * Manticore has no views.
+     *
+     * @param  mixed  $schema
+     * @return array<int, array<string, mixed>>
+     */
+    public function getViews($schema = null): array
+    {
+        return [];
+    }
+
+    /**
+     * Manticore has no foreign keys to turn off.
+     *
+     * @return bool
+     */
+    public function disableForeignKeyConstraints()
+    {
+        return true;
+    }
+
+    /**
+     * Manticore has no foreign keys to turn on.
+     *
+     * @return bool
+     */
+    public function enableForeignKeyConstraints()
+    {
+        return true;
+    }
+
+    /**
      * List a table's column names.
      *
      * @param  string  $table

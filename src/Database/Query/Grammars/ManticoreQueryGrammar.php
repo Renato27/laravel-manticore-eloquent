@@ -320,6 +320,24 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
+     * Manticore's COUNT takes a star or DISTINCT, so count('column') counts the rows, which is the
+     * same thing where there is no NULL.
+     *
+     * @see https://manual.manticoresearch.com/Searching/Grouping
+     *
+     * @param  array  $aggregate
+     * @return string
+     */
+    protected function compileAggregate(Builder $query, $aggregate)
+    {
+        if ($aggregate['function'] === 'count' && ! $query->distinct) {
+            $aggregate['columns'] = ['*'];
+        }
+
+        return parent::compileAggregate($query, $aggregate);
+    }
+
+    /**
      * REPLACE INTO is just an INSERT with the verb swapped.
      */
     public function compileReplace(Builder $query, array $values): string

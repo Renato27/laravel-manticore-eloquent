@@ -52,7 +52,17 @@ it('rejects this SQL', function (string $sql) {
     'a cross join' => 'SELECT * FROM limits_a CROSS JOIN limits_b',
     'two joins' => 'SELECT * FROM limits_a INNER JOIN limits_b ON limits_a.id = limits_b.a_id INNER JOIN limits_b ON limits_a.id = limits_b.a_id',
 
+    // The manual only documents COUNT(*) and COUNT(DISTINCT):
+    // https://manual.manticoresearch.com/Searching/Grouping
+    'COUNT of a column' => 'SELECT COUNT(n) FROM limits_a',
+    // The manual gives ORDER BY random(), which this server rejects. RAND() works, as
+    // the rand_seed option documents, and it is what Laravel writes.
+    // https://manual.manticoresearch.com/Searching/Sorting_and_ranking
+    'ORDER BY random()' => 'SELECT id FROM limits_a ORDER BY random()',
+
     // Not stated in the manual, so proved here.
+    'MAX of a string' => 'SELECT MAX(name) FROM limits_a',
+    'MIN of a string' => 'SELECT MIN(name) FROM limits_a',
     'backticks in a join' => 'SELECT * FROM limits_a INNER JOIN limits_b ON `limits_a`.`id` = `limits_b`.`a_id`',
     'a table alias in a join' => 'SELECT * FROM limits_a AS a INNER JOIN limits_b AS b ON a.id = b.a_id',
     'a star of the other table' => 'SELECT limits_b.* FROM limits_a INNER JOIN limits_b ON limits_a.id = limits_b.a_id',
@@ -108,6 +118,14 @@ it('rejects this statement', function (string $sql) {
     'DELETE with LIMIT' => 'DELETE FROM limits_a WHERE id = 1 LIMIT 1',
 
     // Not stated in the manual, so proved here.
+    'a foreign key' => 'ALTER TABLE limits_a ADD CONSTRAINT c FOREIGN KEY (n) REFERENCES limits_b (id)',
+    'a unique index' => 'CREATE UNIQUE INDEX i ON limits_a (n)',
+    'an index' => 'CREATE INDEX i ON limits_a (n)',
+    'a view' => 'CREATE VIEW v AS SELECT id FROM limits_a',
+    'a default' => 'CREATE TABLE limits_c (n int default 1)',
+    'not null' => 'CREATE TABLE limits_c (n int not null)',
+    'a table without columns' => 'CREATE TABLE limits_c ()',
+    'INSERT ... SELECT, used by insertUsing' => 'INSERT INTO limits_b (id) SELECT id FROM limits_a',
     'INSERT IGNORE' => "INSERT IGNORE INTO limits_a (id, name) VALUES (1, 'x')",
     'ON DUPLICATE KEY' => "INSERT INTO limits_a (id, name) VALUES (1, 'x') ON DUPLICATE KEY UPDATE name = 'y'",
     'NULL in INSERT' => 'INSERT INTO limits_a (id, n) VALUES (3, NULL)',
@@ -130,6 +148,10 @@ it('ignores these writes without an error, which the driver works around', funct
     expect($row->n)->toBe(1)
         ->and($row->f)->toBe(1.5)
         ->and($row->name)->toBe('alpha');
+});
+
+it('orders at random with RAND(), which Laravel writes', function () {
+    expect(DB::connection('manticore')->select('SELECT id FROM limits_a ORDER BY RAND()'))->toHaveCount(2);
 });
 
 it('returns 20 rows and stops at 1000 unless told otherwise', function () {

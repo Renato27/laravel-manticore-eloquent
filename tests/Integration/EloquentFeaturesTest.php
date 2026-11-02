@@ -240,6 +240,10 @@ it('limit: a transaction can only write to one table', function () {
     }
 });
 
+it('limit: insertUsing() fails with the error of the server', function () {
+    featureTable()->insertUsing(['id', 'slug'], featureTable()->select('id', 'slug'));
+})->throws(QueryException::class);
+
 it('limit: SQL the server does not have fails with its error', function (Closure $query) {
     expect(fn () => $query(featureTable())->get())->toThrow(QueryException::class);
 })->with([
@@ -249,4 +253,14 @@ it('limit: SQL the server does not have fails with its error', function (Closure
     'whereDate' => [fn ($q) => $q->whereDate('views', '2026-01-01')],
     'whereExists' => [fn ($q) => $q->whereExists(fn ($sub) => $sub->from('feature_posts'))],
     'a subquery' => [fn ($q) => $q->whereIn('id', fn ($sub) => $sub->select('id')->from('feature_posts'))],
+    'selectSub' => [fn ($q) => $q->selectSub(featureTable()->selectRaw('count(*)'), 'c')],
+    'joinSub' => [fn ($q) => $q->joinSub(featureTable(), 'o', fn ($join) => $join->on('feature_posts.id', '=', 'o.id'))],
+    'whereLike' => [fn ($q) => method_exists($q, 'whereLike') ? $q->whereLike('slug', 'a%') : $q->where('slug', 'like', 'a%')],
+    'whereBetweenColumns' => [fn ($q) => $q->whereBetweenColumns('views', ['id', 'views'])],
+    'whereValueBetween' => [fn ($q) => method_exists($q, 'whereValueBetween') ? $q->whereValueBetween(1, ['id', 'views']) : $q->whereColumn('id', 'views')],
+    'whereYear' => [fn ($q) => $q->whereYear('views', 2026)],
+    'whereMonth' => [fn ($q) => $q->whereMonth('views', 1)],
+    'whereDay' => [fn ($q) => $q->whereDay('views', 1)],
+    'whereTime' => [fn ($q) => $q->whereTime('views', '=', '10:00:00')],
+    'whereJsonContainsKey' => [fn ($q) => $q->whereJsonContainsKey('slug->a')],
 ]);

@@ -9,15 +9,19 @@ changes it.
 
 - `find`, `first`, `get`, `all`, `pluck`, `value`, `sole`, `exists`, `count`, `sum` and the other
   aggregates, `paginate`, `simplePaginate`, `cursorPaginate`, `chunk`, `chunkById`, `lazy`, `cursor`
-- `where`, `orWhere`, `whereIn`, `whereNotIn`, `whereBetween`, `whereKey`, nested closures,
-  `orderBy`, `latest`, `groupBy`, `having`, `limit`, `offset`, `select`, `selectRaw`
+- `where`, `orWhere`, `whereNot`, `whereAny`, `whereAll`, `whereIn`, `whereNotIn`, `whereBetween`,
+  `whereNotBetween`, `whereKey`, `whereRaw`, `when`, nested closures
+- `orderBy`, `orderByDesc`, `orderByRaw`, `reorder`, `latest`, `inRandomOrder`, `groupBy`, `groupByRaw`,
+  `having`, `havingRaw`, `havingBetween`, `limit`, `offset`, `select`, `addSelect`, `selectRaw`,
+  `each`, `lazyById`, `toRawSql`
 - `join`, `leftJoin`, `fromSub`
 - `create`, `insert`, `insertGetId`, `update`, `delete`, `destroy`, `save`, `replicate`, `fresh`,
   `firstOrCreate`, `updateOrCreate`, `truncate`
 - Scopes, casts, accessors, `$appends`, events, timestamps, route model binding, `SoftDeletes`
 - `hasOne`, `hasMany`, `belongsTo`, `belongsToMany` with its pivot methods, `morphMany`, `morphTo`,
   `morphToMany`, `hasManyThrough`, `hasOneThrough`, on demand and with `with()`
-- Migrations: `Schema::create`, `table`, `drop`, `rename`, `hasTable`, `getColumns`, `getTables`
+- Migrations: `Schema::create`, `table`, `drop`, `rename`, `hasTable`, `hasColumn`, `hasColumns`,
+  `hasIndex`, `getColumns`, `getColumnType`, `getIndexes`, `getTables`
 - `DB::transaction()` for inserts, replaces and deletes on one table, with the limits below
 
 ## Translated for Manticore
@@ -33,6 +37,10 @@ changes it.
 | `upsert()` | `replace` | Only keyed by `id` and writing every column | `ServerLimitsTest`: no `ON DUPLICATE KEY` |
 | `updateOrInsert()` | `update` without `limit` | Updates every match | [`UPDATE` syntax](https://manual.manticoresearch.com/Data_creation_and_modification/Updating_documents/UPDATE) has no `LIMIT` |
 | `whereFullText()` | `matchText()` | | |
+| `count('column')` | `count(*)` | Counts every row, as there is no `NULL` to skip | [`COUNT(*)` and `COUNT(DISTINCT)`](https://manual.manticoresearch.com/Searching/Grouping) |
+| `$table->index()`, `unique()`, `primary()`, `foreign()`, `constrained()`, `fullText()` | The column, without the rest | **Nothing enforces uniqueness or a foreign key** | `ServerLimitsTest`. [Secondary indexes are on by default](https://manual.manticoresearch.com/Server_settings/Searchd) and a `text` field is [already indexed](https://manual.manticoresearch.com/Creating_a_table/Data_types) |
+| `nullable()`, `default()`, `comment()` | The column, without the rest | A new document holds the type's empty value | `ServerLimitsTest` |
+| `getForeignKeys()`, `getViews()` | An empty list | | `ServerLimitsTest` |
 | Two `match()` calls | One `MATCH()` | | [At most one `MATCH()`](https://manual.manticoresearch.com/Searching/Full_text_matching/Basic_usage) |
 | `` `table`.`column` `` in any clause | `table.column`, or the bare column for the query's own table | | `ServerLimitsTest`: backticks are rejected there |
 | `table.*` of the left table | `*`, leaving the other table's columns out of the row | | `ServerLimitsTest` |
@@ -48,7 +56,7 @@ changes it.
 | `rightJoin()`, `crossJoin()` | `LogicException` | [Only `INNER` and `LEFT`](https://manual.manticoresearch.com/Searching/Joining). The server would run a right join as an inner one, as `ServerLimitsTest` shows | Swap the tables and use `leftJoin()` |
 | `increment()`, `decrement()` | `LogicException` | `ServerLimitsTest`: `UPDATE` takes no expressions | Read the value and write the new one, which is not atomic |
 | `upsert()` keyed or writing otherwise | `LogicException` | `REPLACE` rewrites the whole document | `update()`, or `replaceWhereId()` |
-| A Blueprint type with no equivalent, such as `binary` | `LogicException` naming the column | [Data types](https://manual.manticoresearch.com/Creating_a_table/Data_types) | Base64 in a `text` or `string` column, as the manual suggests |
+| A Blueprint type with no equivalent, such as `binary` or `geometry` | `LogicException` naming the column | [Data types](https://manual.manticoresearch.com/Creating_a_table/Data_types) | Base64 in a `text` or `string` column, as the manual suggests |
 | `change()` to anything but `bigInteger` | `LogicException` | [Only `int` to `bigint`](https://manual.manticoresearch.com/Updating_table_schema_and_settings) | Create a new table and reindex |
 | A qualified name or JSON path with anything but plain names | `InvalidArgumentException` | They go out unquoted | |
 
@@ -56,17 +64,21 @@ changes it.
 
 | You write | Why | Instead |
 |---|---|---|
-| `whereHas`, `withCount`, `whereExists`, `whereIn` with a subquery | [Sub-selects only exist in `FROM`](https://manual.manticoresearch.com/Searching/Sub-selects) | Run the two queries, or `pluck()` the ids and use `whereIn()` |
+| `whereHas`, `withCount`, `whereExists`, `whereIn` with a subquery, `selectSub`, `joinSub`, `insertUsing` | [Sub-selects only exist in `FROM`](https://manual.manticoresearch.com/Searching/Sub-selects) | Run the two queries, or `pluck()` the ids and use `whereIn()` |
 | A second `join()` in one query | [The syntax has one `JOIN`](https://manual.manticoresearch.com/Searching/Joining), and `ServerLimitsTest` | Run the queries separately |
 | A table alias in a join, `table.*` of the joined table | `ServerLimitsTest` | Name the tables and the columns |
 | `union` | `ServerLimitsTest` | Run the queries separately |
-| `like` | [Not among the operators of `WHERE`](https://manual.manticoresearch.com/Searching/Filters), and `ServerLimitsTest` | `matchText()`, or [`REGEX()`](https://manual.manticoresearch.com/Functions/String_functions) through an alias |
-| `whereColumn`, `whereDate` and its relatives | [A function or expression cannot be used directly in `WHERE`](https://manual.manticoresearch.com/Searching/Filters) | Select it with an alias and filter on the alias, as below |
+| `like`, `whereLike` | [Not among the operators of `WHERE`](https://manual.manticoresearch.com/Searching/Filters), and `ServerLimitsTest` | `matchText()`, or [`REGEX()`](https://manual.manticoresearch.com/Functions/String_functions) through an alias |
+| `whereColumn`, `whereBetweenColumns`, `whereValueBetween`, `whereDate`, `whereYear`, `whereMonth`, `whereDay`, `whereTime` | [A function or expression cannot be used directly in `WHERE`](https://manual.manticoresearch.com/Searching/Filters) | `whereBetween('created_at', ['2026-03-01 00:00:00', '2026-03-01 23:59:59'])` for a date, or select it with an alias and filter on the alias, as below |
+| `max()` or `min()` of a string | `ServerLimitsTest` | Order by it and take the first row |
 | `orWhere` next to `match()` | [`OR` with full-text matches is not supported](https://manual.manticoresearch.com/Searching/Full_text_matching/Basic_usage) | Write the alternative in the search syntax, as in `(a) \| (b)` |
 | `insertOrIgnore()` | `ServerLimitsTest` | `firstOrCreate()` or `replace()` |
 | `whereJsonContains()`, `whereJsonLength()` | `ServerLimitsTest` | [`ANY()` or `LENGTH()`](https://manual.manticoresearch.com/Functions/Arrays_and_conditions_functions) through an alias |
+| `whereJsonContainsKey()` | Laravel writes it with MySQL's `json_contains_path()` | `whereNotNull('meta->key')` |
+| `whereVectorSimilarTo()` and its relatives | [PostgreSQL only, in Laravel](https://laravel.com/docs/12.x/queries#vector-similarity-clauses) | `knn()` |
 | `limit()` or `orderBy()` in `update()` or `delete()` | [`UPDATE` syntax](https://manual.manticoresearch.com/Data_creation_and_modification/Updating_documents/UPDATE), and `ServerLimitsTest` | Filter by what should change |
 | `update()` of a `text` field | [Use `REPLACE`](https://manual.manticoresearch.com/Data_creation_and_modification/Updating_documents/UPDATE) | `replace()` or `replaceWhereId()` |
+| `$table->vector()` | Laravel refuses it on this driver | `floatVector()` |
 | `renameColumn()` | [`ALTER` adds, drops and widens](https://manual.manticoresearch.com/Updating_table_schema_and_settings), and `ServerLimitsTest` | Create a new table and reindex |
 
 The alias form the manual gives for filtering on an expression works through `selectRaw()`:

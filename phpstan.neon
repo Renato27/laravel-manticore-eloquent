@@ -14,6 +14,9 @@ parameters:
         # Only MySqlConnection's docblocks claim MySQL's schema classes.
         - identifier: method.childReturnType
           path: src/Database/ManticoreConnection.php
+        # Blueprint skips a command that compiles to null, which the docblocks leave out.
+        - identifier: method.childReturnType
+          path: src/Database/Schema/ManticoreSchemaGrammar.php
         # Model's constructor is not final, and Eloquent itself relies on new static.
         - identifier: new.static
           path: src/Concerns/HasManticore.php

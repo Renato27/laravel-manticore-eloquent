@@ -98,7 +98,8 @@ class ManticoreConnection extends MySqlConnection
 
     /**
      * Laravel 12 dropped Connection::withTablePrefix() — grammars now read the prefix
-     * straight from their connection. We only call it on the versions that still have it.
+     * straight from their connection. We only call it on the versions that still have it,
+     * which also need to be told the connection, for toRawSql().
      *
      * @template TGrammar of \Illuminate\Database\Grammar
      *
@@ -107,6 +108,10 @@ class ManticoreConnection extends MySqlConnection
      */
     protected function withManticoreTablePrefix($grammar)
     {
+        if (method_exists($grammar, 'setConnection')) {
+            $grammar->setConnection($this);
+        }
+
         return method_exists($this, 'withTablePrefix')
             ? $this->withTablePrefix($grammar)
             : $grammar;

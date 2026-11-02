@@ -863,3 +863,27 @@ it('finds the type of a column of a joined table', function () {
 it('takes the operator shortcut with a value in the operator position', function () {
     expect(typedQuery()->where('views', '5', null, 'and')->getBindings())->toBe([5]);
 });
+
+it('counts by a star, since Manticore takes no other column in COUNT', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')->once()
+        ->withArgs(fn (string $sql) => str_starts_with($sql, 'select count(*)'))
+        ->andReturn([(object) ['aggregate' => 2]]);
+
+    $query = new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor);
+
+    expect($query->from('docs')->count('views'))->toBe(2);
+});
+
+it('keeps a distinct count', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')->once()
+        ->withArgs(fn (string $sql) => str_starts_with($sql, 'select count(distinct `views`)'))
+        ->andReturn([(object) ['aggregate' => 2]]);
+
+    $query = new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor);
+
+    expect($query->from('docs')->distinct()->count('views'))->toBe(2);
+});
