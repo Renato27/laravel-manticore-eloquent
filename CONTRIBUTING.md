@@ -27,7 +27,7 @@ The test that uses auto-embeddings downloads a model, so it only runs when asked
 weekly CI run:
 
 ```bash
-MANTICORE_TEST_EMBEDDINGS=1 vendor/bin/pest tests/Integration/AutoEmbeddingsTest.php
+vendor/bin/pest --group=embeddings
 ```
 
 ## Saying that Manticore does not do something
