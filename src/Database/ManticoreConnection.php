@@ -24,12 +24,11 @@ class ManticoreConnection extends MySqlConnection
      * The type of each column of a table, as DESC reports it. Empty when it is not a single
      * table that exists, which leaves the server to answer whatever is asked of it.
      *
-     * @param  string  $table
      * @return array<string, string>
      */
     public function columnTypes(string $table): array
     {
-        $table = $this->getTablePrefix() . $table;
+        $table = $this->getTablePrefix().$table;
 
         if (isset($this->columnTypes[$table])) {
             return $this->columnTypes[$table];
@@ -40,7 +39,7 @@ class ManticoreConnection extends MySqlConnection
         }
 
         try {
-            $columns = $this->select('DESC ' . $table);
+            $columns = $this->select('DESC '.$table);
         } catch (QueryException) {
             return [];
         }
@@ -68,7 +67,6 @@ class ManticoreConnection extends MySqlConnection
      * A timestamp column holds a Unix integer, so a date is sent as one. As a date string it
      * would be rejected by UPDATE, and stored as 0 by INSERT.
      *
-     * @param  array  $bindings
      * @return array
      */
     public function prepareBindings(array $bindings)
@@ -84,8 +82,6 @@ class ManticoreConnection extends MySqlConnection
 
     /**
      * Use the Manticore query grammar in place of the MySQL one.
-     *
-     * @return \ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar
      */
     protected function getDefaultQueryGrammar(): ManticoreQueryGrammar
     {
@@ -94,8 +90,6 @@ class ManticoreConnection extends MySqlConnection
 
     /**
      * Use the Manticore schema grammar in place of the MySQL one.
-     *
-     * @return \ManticoreEloquent\Database\Schema\ManticoreSchemaGrammar
      */
     protected function getDefaultSchemaGrammar(): ManticoreSchemaGrammar
     {
@@ -107,6 +101,7 @@ class ManticoreConnection extends MySqlConnection
      * straight from their connection. We only call it on the versions that still have it.
      *
      * @template TGrammar of \Illuminate\Database\Grammar
+     *
      * @param  TGrammar  $grammar
      * @return TGrammar
      */
@@ -119,8 +114,6 @@ class ManticoreConnection extends MySqlConnection
 
     /**
      * Hand back a schema builder that introspects Manticore via SHOW TABLES / DESC.
-     *
-     * @return \ManticoreEloquent\Database\Schema\ManticoreSchemaBuilder
      */
     public function getSchemaBuilder(): ManticoreSchemaBuilder
     {
@@ -133,8 +126,6 @@ class ManticoreConnection extends MySqlConnection
 
     /**
      * Use the Manticore result post-processor.
-     *
-     * @return \ManticoreEloquent\Database\Query\Processors\ManticoreProcessor
      */
     protected function getDefaultPostProcessor(): ManticoreProcessor
     {
@@ -143,8 +134,6 @@ class ManticoreConnection extends MySqlConnection
 
     /**
      * Start queries on the Manticore-aware builder, so models inherit match()/option()/facet().
-     *
-     * @return \ManticoreEloquent\Database\Query\ManticoreQueryBuilder
      */
     public function query(): ManticoreQueryBuilder
     {

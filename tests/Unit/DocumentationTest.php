@@ -4,10 +4,9 @@
  * The README is only the entry point, so a broken link means a page nobody can reach.
  * Checked offline: relative links and their anchors, not external URLs.
  */
-
 function documentationPath(string $file = ''): string
 {
-    return dirname(__DIR__, 2) . '/' . $file;
+    return dirname(__DIR__, 2).'/'.$file;
 }
 
 /**
@@ -18,7 +17,7 @@ function documentationFiles(): array
     return [
         'README.md',
         'CONTRIBUTING.md',
-        ...array_map(static fn (string $path) => 'docs/' . basename($path), glob(documentationPath('docs/*.md'))),
+        ...array_map(static fn (string $path) => 'docs/'.basename($path), glob(documentationPath('docs/*.md'))),
     ];
 }
 
@@ -66,7 +65,7 @@ it('links only to files and headings that exist', function (string $file) {
     foreach (relativeLinks($markdown) as $link) {
         [$target, $anchor] = array_pad(explode('#', $link, 2), 2, null);
 
-        $path = $target === '' ? documentationPath($file) : dirname(documentationPath($file)) . '/' . $target;
+        $path = $target === '' ? documentationPath($file) : dirname(documentationPath($file)).'/'.$target;
 
         expect(file_exists($path))->toBeTrue("{$file} links to a missing file: {$link}");
 
@@ -80,7 +79,7 @@ it('reaches every docs page from the README', function () {
     $links = relativeLinks(file_get_contents(documentationPath('README.md')));
 
     foreach (glob(documentationPath('docs/*.md')) as $page) {
-        expect($links)->toContain('docs/' . basename($page));
+        expect($links)->toContain('docs/'.basename($page));
     }
 });
 

@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
@@ -11,12 +12,14 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
 /**
  * Manticore has no NULL outside JSON: a column without a value holds 0 or an empty string.
  */
-
 class NullablePost extends ManticoreModel
 {
     protected $table = 'null_posts';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $casts = ['seen_at' => 'datetime', 'meta' => 'array'];
 }
 
@@ -25,11 +28,13 @@ class SoftPost extends ManticoreModel
     use SoftDeletes;
 
     protected $table = 'null_posts';
+
     protected $guarded = [];
+
     public $timestamps = false;
 }
 
-function nullTable(): \Illuminate\Database\Query\Builder
+function nullTable(): Builder
 {
     return DB::connection('manticore')->table('null_posts');
 }
@@ -37,8 +42,8 @@ function nullTable(): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     $schema = Schema::connection('manticore');
@@ -61,7 +66,7 @@ beforeEach(function () {
 afterEach(function () {
     try {
         Schema::connection('manticore')->dropIfExists('null_posts');
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // Nothing to clean up when the server is not reachable.
     }
 });
@@ -70,7 +75,7 @@ it('treats the empty value of each type as null', function (string $column) {
     expect(nullTable()->whereNull($column)->pluck('id')->all())->toBe([2])
         ->and(nullTable()->whereNotNull($column)->pluck('id')->all())->toBe([1])
         ->and(nullTable()->where($column, null)->pluck('id')->all())->toBe([2])
-        ->and(nullTable()->whereNotNull('null_posts.' . $column)->pluck('id')->all())->toBe([1]);
+        ->and(nullTable()->whereNotNull('null_posts.'.$column)->pluck('id')->all())->toBe([1]);
 })->with(['views', 'score', 'slug', 'flag', 'seen_at', 'meta']);
 
 it('counts a real 0 as null, since the server cannot tell them apart', function () {

@@ -3,13 +3,13 @@
 namespace ManticoreEloquent\Eloquent\Casts;
 
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Expression;
 
 class VectorCast implements CastsAttributes
 {
     /**
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  string  $key
+     * @param  Model  $model
      * @param  mixed  $value
      * @param  array<string, mixed>  $attributes
      * @return array<int, float>|null
@@ -26,8 +26,7 @@ class VectorCast implements CastsAttributes
     }
 
     /**
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  string  $key
+     * @param  Model  $model
      * @param  mixed  $value
      * @param  array<string, mixed>  $attributes
      * @return mixed

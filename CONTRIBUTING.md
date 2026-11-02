@@ -40,7 +40,8 @@ composer analyse    # PHPStan
 ## The tests badge
 
 On every push to `master`, CI runs all the suites against a live Manticore, the oldest tested
-version and the latest, on one PHP and Laravel version, and `.github/scripts/tests-badge.php` turns the report of the latest into `tests.json` on the `badges`
+version and the latest, on one PHP and Laravel version, and `.github/scripts/tests-badge.php`
+turns the report of the latest into `tests.json` on the `badges`
 branch, which is what the badge reads. The CI badge next to it covers the whole version matrix.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and the SQL differences handled.

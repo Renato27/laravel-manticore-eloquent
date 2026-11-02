@@ -8,7 +8,6 @@ use ManticoreEloquent\Database\Schema\ManticoreSchemaGrammar;
 /**
  * Pure DDL-compilation tests for the Manticore schema grammar (offline).
  */
-
 function schemaConnection(): Connection
 {
     $connection = Mockery::mock(Connection::class);
@@ -141,8 +140,8 @@ it('compiles a float_vector column with knn options', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();
         $blueprint->addColumn('floatVector', 'embedding', [
-            'dims'       => 384,
-            'knnType'    => 'hnsw',
+            'dims' => 384,
+            'knnType' => 'hnsw',
             'similarity' => 'L2',
         ]);
     })[0];
@@ -154,8 +153,8 @@ it('appends extra hnsw tuning options to a float_vector column', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();
         $blueprint->addColumn('floatVector', 'content_vector', [
-            'dims'       => 768,
-            'knnType'    => 'hnsw',
+            'dims' => 768,
+            'knnType' => 'hnsw',
             'similarity' => 'cosine',
             'knnOptions' => ['hnsw_m' => 16, 'hnsw_ef_construction' => 200],
         ]);

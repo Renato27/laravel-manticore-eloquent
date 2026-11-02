@@ -8,7 +8,9 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
 class MvaCastDoc extends ManticoreModel
 {
     protected $table = 'docs_rt';
+
     protected $guarded = [];
+
     protected $casts = ['tag_ids' => MvaCast::class];
 }
 

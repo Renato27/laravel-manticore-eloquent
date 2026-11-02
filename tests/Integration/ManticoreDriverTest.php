@@ -1,11 +1,11 @@
 <?php
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Database\Eloquent\Model;
 use ManticoreEloquent\Concerns\HasManticore;
 use ManticoreEloquent\Eloquent\Casts\VectorCast;
 use ManticoreEloquent\Eloquent\ManticoreModel;
@@ -16,11 +16,12 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
  *
  *   docker run --rm -p 9306:9306 -p 9308:9308 manticoresearch/manticore
  */
-
 class IntegrationArticle extends ManticoreModel
 {
     protected $table = 'it_articles_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
 }
 
@@ -29,22 +30,26 @@ class IntegrationGatewayArticle extends Model
     use HasManticore;
 
     protected $table = 'it_articles_rt';
+
     public $timestamps = false;
 }
 
 class IntegrationVector extends ManticoreModel
 {
     protected $table = 'it_vectors_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $casts = ['embedding' => VectorCast::class];
 }
 
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     Schema::connection('manticore')->dropIfExists('it_articles_rt');
@@ -58,7 +63,7 @@ beforeEach(function () {
 afterAll(function () {
     try {
         Schema::connection('manticore')->dropIfExists('it_articles_rt');
-    } catch (\Throwable) {
+    } catch (Throwable) {
     }
 });
 
@@ -141,9 +146,9 @@ it('rewrites a full document with replace()', function () {
     IntegrationArticle::create(['id' => 7, 'title' => 'first revision', 'views' => 1, 'published' => false]);
 
     IntegrationArticle::query()->replace([
-        'id'        => 7,
-        'title'     => 'second revision',
-        'views'     => 2,
+        'id' => 7,
+        'title' => 'second revision',
+        'views' => 2,
         'published' => true,
     ]);
 
@@ -328,10 +333,15 @@ it('partially replaces only the given fields, including full-text ones', functio
 class IntegrationUuidArticle extends ManticoreModel
 {
     protected $table = 'it_uuid_articles_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     public $incrementing = false;
+
     protected $keyType = 'string';
+
     protected $casts = ['embedding' => VectorCast::class];
 }
 
@@ -340,8 +350,11 @@ class IntegrationHasUuidsArticle extends ManticoreModel
     use HasUuids;
 
     protected $table = 'it_uuid_articles_rt';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $casts = ['embedding' => VectorCast::class];
 }
 
@@ -725,10 +738,14 @@ it('returns a server-generated uuid from insertGetId()', function () {
 
 it('gives a model the uuid the server generated, and keeps one given by hand', function () {
     withUuidTable(function () {
-        $model = new class extends ManticoreModel {
+        $model = new class extends ManticoreModel
+        {
             protected $table = 'it_uuid_articles_rt';
+
             protected $guarded = [];
+
             public $timestamps = false;
+
             protected $keyType = 'string';
         };
 
@@ -768,7 +785,8 @@ it('searches several indexes through searchableAs()', function () {
         DB::connection('manticore')->table('it_multi_a')->insert(['id' => 1, 'title' => 'alpha']);
         DB::connection('manticore')->table('it_multi_b')->insert(['id' => 2, 'title' => 'alpha']);
 
-        $model = new class extends Model {
+        $model = new class extends Model
+        {
             use HasManticore;
 
             public function searchableAs(): array

@@ -1,8 +1,7 @@
 <?php
 
-use Illuminate\Database\Query\Expression;
-
 use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Expression;
 use Illuminate\Database\QueryException;
 use ManticoreEloquent\Database\ManticoreConnection;
 use ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar;
@@ -270,7 +269,7 @@ it('inlines Expression values in a partial REPLACE instead of binding them', fun
     $query = manticoreQuery('t1_docs');
 
     $sql = $query->getGrammar()->compileReplaceSet($query, [
-        'title'     => 'Hello',
+        'title' => 'Hello',
         'embedding' => new Expression('(0.1, 0.2)'),
     ]);
 
@@ -295,9 +294,9 @@ it('binds the values and then the id for a partial REPLACE', function () {
     ))->from('t1_docs');
 
     expect($query->replaceWhereId(42, [
-        'title'     => 'Hello',
+        'title' => 'Hello',
         'embedding' => new Expression('(0.1, 0.2)'),
-        'price'     => 10,
+        'price' => 10,
     ]))->toBeTrue();
 });
 
@@ -351,18 +350,18 @@ it('binds a numeric string id as an integer, which is the only form Buddy accept
  * 8/9/a/b and the nil UUID are all rejected by the server.
  */
 dataset('invalid document ids', [
-    'not a uuid'         => 'not-a-uuid',
-    'empty'              => '',
-    'zero as a string'   => '0',
-    'negative string'    => '-5',
+    'not a uuid' => 'not-a-uuid',
+    'empty' => '',
+    'zero as a string' => '0',
+    'negative string' => '-5',
     'beyond PHP_INT_MAX' => '99999999999999999999',
-    'version 0'          => '550e8400-e29b-01d4-a716-446655440000',
-    'version 9'          => '550e8400-e29b-91d4-a716-446655440000',
-    'variant c'          => '550e8400-e29b-41d4-c716-446655440000',
-    'nil uuid'           => '00000000-0000-0000-0000-000000000000',
-    'no dashes'          => '550e8400e29b41d4a716446655440000',
-    'trailing newline'   => "550e8400-e29b-41d4-a716-446655440000\n",
-    'sql fragment'       => "550e8400-e29b-41d4-a716-446655440000'); drop table docs; --",
+    'version 0' => '550e8400-e29b-01d4-a716-446655440000',
+    'version 9' => '550e8400-e29b-91d4-a716-446655440000',
+    'variant c' => '550e8400-e29b-41d4-c716-446655440000',
+    'nil uuid' => '00000000-0000-0000-0000-000000000000',
+    'no dashes' => '550e8400e29b41d4a716446655440000',
+    'trailing newline' => "550e8400-e29b-41d4-a716-446655440000\n",
+    'sql fragment' => "550e8400-e29b-41d4-a716-446655440000'); drop table docs; --",
 ]);
 
 it('rejects an invalid string id in replaceWhereId()', function (string $id) {
@@ -498,7 +497,7 @@ it('checks existence by selecting one row, since Manticore has no select exists(
     expect($query->exists())->toBe($expected);
     expect($query->toSql())->toBe(unlimited('select * from `docs` where `tag` = ?'));
 })->with([
-    'a row'   => [[(object) ['id' => 1]], true],
+    'a row' => [[(object) ['id' => 1]], true],
     'no rows' => [[], false],
 ]);
 
@@ -642,17 +641,17 @@ function typedQuery(): ManticoreQueryBuilder
 it('puts a filter value in its column type', function (string $column, mixed $value, mixed $binding) {
     expect(typedQuery()->where($column, $value)->getBindings())->toBe([$binding]);
 })->with([
-    'a number in a uint column'    => ['views', '10', 10],
-    'a qualified bigint column'    => ['docs.id', '10', 10],
-    'a number in a bool column'    => ['on', '1', 1],
-    'a number in a timestamp'      => ['seen_at', '1000', 1000],
-    'a number in a string column'  => ['slug', 10, '10'],
-    'a string in a string column'  => ['slug', '10', '10'],
-    'a uuid is never converted'    => ['ref', '123', '123'],
-    'a json path is not a column'  => ['meta->views', '10', '10'],
-    'a word stays for the server'  => ['views', 'abc', 'abc'],
-    'a decimal in an int column'   => ['views', '1.5', '1.5'],
-    'an oversized number'          => ['id', '99999999999999999999', '99999999999999999999'],
+    'a number in a uint column' => ['views', '10', 10],
+    'a qualified bigint column' => ['docs.id', '10', 10],
+    'a number in a bool column' => ['on', '1', 1],
+    'a number in a timestamp' => ['seen_at', '1000', 1000],
+    'a number in a string column' => ['slug', 10, '10'],
+    'a string in a string column' => ['slug', '10', '10'],
+    'a uuid is never converted' => ['ref', '123', '123'],
+    'a json path is not a column' => ['meta->views', '10', '10'],
+    'a word stays for the server' => ['views', 'abc', 'abc'],
+    'a decimal in an int column' => ['views', '1.5', '1.5'],
+    'an oversized number' => ['id', '99999999999999999999', '99999999999999999999'],
     'a word in a timestamp column' => ['seen_at', 'not a date', 'not a date'],
 ]);
 
@@ -668,7 +667,7 @@ it('inlines a float, since PDO would quote it', function () {
 });
 
 it('never inlines anything but a number', function () {
-    $q = typedQuery()->where('score', "1 or 1=1");
+    $q = typedQuery()->where('score', '1 or 1=1');
 
     expect($q->toSql())->toContain('`score` = ?')
         ->and($q->getBindings())->toBe(['1 or 1=1']);
@@ -693,12 +692,12 @@ it('leaves a filter on a raw table without looking up any type', function () {
 it('filters null by the empty value of the column', function (string $column, string $where) {
     expect(typedQuery()->whereNull($column)->toSql())->toBe(unlimited("select * from `docs` where {$where}"));
 })->with([
-    'an integer'      => ['views', '`views` = 0'],
-    'a bigint'        => ['id', '`id` = 0'],
-    'a float'         => ['score', '`score` = 0'],
-    'a bool'          => ['on', '`on` = 0'],
-    'a timestamp'     => ['seen_at', '`seen_at` = 0'],
-    'a string'        => ['slug', "`slug` = ''"],
+    'an integer' => ['views', '`views` = 0'],
+    'a bigint' => ['id', '`id` = 0'],
+    'a float' => ['score', '`score` = 0'],
+    'a bool' => ['on', '`on` = 0'],
+    'a timestamp' => ['seen_at', '`seen_at` = 0'],
+    'a string' => ['slug', "`slug` = ''"],
     'a qualified one' => ['docs.views', '`views` = 0'],
     'json keeps null' => ['meta', '`meta` is null'],
     'an unknown type' => ['other', '`other` is null'],
@@ -707,8 +706,8 @@ it('filters null by the empty value of the column', function (string $column, st
 it('filters not null by the empty value of the column', function (string $column, string $where) {
     expect(typedQuery()->whereNotNull($column)->toSql())->toBe(unlimited("select * from `docs` where {$where}"));
 })->with([
-    'an integer'      => ['views', '`views` != 0'],
-    'a string'        => ['slug', "`slug` != ''"],
+    'an integer' => ['views', '`views` != 0'],
+    'a string' => ['slug', "`slug` != ''"],
     'json keeps null' => ['meta', '`meta` is not null'],
     'an unknown type' => ['other', '`other` is not null'],
 ]);

@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -8,11 +9,13 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
 class FacetDocument extends ManticoreModel
 {
     protected $table = 'facet_docs';
+
     protected $guarded = [];
+
     public $timestamps = false;
 }
 
-function facetTable(): \Illuminate\Database\Query\Builder
+function facetTable(): Builder
 {
     return DB::connection('manticore')->table('facet_docs');
 }
@@ -20,8 +23,8 @@ function facetTable(): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     Schema::connection('manticore')->dropIfExists('facet_docs');
@@ -42,7 +45,7 @@ beforeEach(function () {
 afterEach(function () {
     try {
         Schema::connection('manticore')->dropIfExists('facet_docs');
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // Nothing to clean up when the server is not reachable.
     }
 });
@@ -86,10 +89,11 @@ it('works from a model', function () {
 });
 
 it('applies the global scopes of a model', function () {
-    $model = new class extends FacetDocument {
+    $model = new class extends FacetDocument
+    {
         protected static function booted(): void
         {
-            static::addGlobalScope('recent', fn ($query) => $query->where('year', 2022));
+            self::addGlobalScope('recent', fn ($query) => $query->where('year', 2022));
         }
     };
 

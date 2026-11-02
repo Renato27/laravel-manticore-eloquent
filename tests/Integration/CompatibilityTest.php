@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -10,13 +11,16 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
  * The "works as usual" list of docs/compatibility.md, run against a real server. The translated and
  * failing parts have their own tests.
  */
-
 class CompatibleDocument extends ManticoreModel
 {
     protected $table = 'compat_docs';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $appends = ['label'];
+
     protected $casts = ['published' => 'boolean'];
 
     public static array $saved = [];
@@ -39,7 +43,7 @@ class CompatibleDocument extends ManticoreModel
     }
 }
 
-function compatTable(): \Illuminate\Database\Query\Builder
+function compatTable(): Builder
 {
     return DB::connection('manticore')->table('compat_docs');
 }
@@ -47,8 +51,8 @@ function compatTable(): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     Schema::connection('manticore')->dropIfExists('compat_docs');
@@ -69,7 +73,7 @@ beforeEach(function () {
 afterEach(function () {
     try {
         Schema::connection('manticore')->dropIfExists('compat_docs');
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // Nothing to clean up when the server is not reachable.
     }
 });

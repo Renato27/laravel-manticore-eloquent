@@ -10,11 +10,12 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
 /**
  * Relations against a real Manticore, on both sides of a relational connection.
  */
-
 class RelPost extends ManticoreModel
 {
     protected $table = 'rel_posts';
+
     protected $guarded = [];
+
     public $timestamps = false;
 
     public function notes()
@@ -61,7 +62,9 @@ class RelPost extends ManticoreModel
 class RelNote extends ManticoreModel
 {
     protected $table = 'rel_notes';
+
     protected $guarded = [];
+
     public $timestamps = false;
 
     public function post()
@@ -73,7 +76,9 @@ class RelNote extends ManticoreModel
 class RelComment extends ManticoreModel
 {
     protected $table = 'rel_comments';
+
     protected $guarded = [];
+
     public $timestamps = false;
 
     public function commentable()
@@ -85,15 +90,20 @@ class RelComment extends ManticoreModel
 class RelTag extends ManticoreModel
 {
     protected $table = 'rel_tags';
+
     protected $guarded = [];
+
     public $timestamps = false;
 }
 
 class RelAuthor extends Model
 {
     protected $connection = 'relational';
+
     protected $table = 'rel_authors';
+
     protected $guarded = [];
+
     public $timestamps = false;
 
     public function posts()
@@ -105,17 +115,24 @@ class RelAuthor extends Model
 class RelReview extends Model
 {
     protected $connection = 'relational';
+
     protected $table = 'rel_reviews';
+
     protected $guarded = [];
+
     public $timestamps = false;
 }
 
 class RelUuidPost extends ManticoreModel
 {
     protected $table = 'rel_uuid_posts';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     public function notes()
@@ -127,7 +144,9 @@ class RelUuidPost extends ManticoreModel
 class RelUuidNote extends ManticoreModel
 {
     protected $table = 'rel_uuid_notes';
+
     protected $guarded = [];
+
     public $timestamps = false;
 
     public function post()
@@ -144,8 +163,8 @@ function relationTables(): array
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     $schema = Schema::connection('manticore');
@@ -207,7 +226,7 @@ afterEach(function () {
     foreach (relationTables() as $table) {
         try {
             Schema::connection('manticore')->dropIfExists($table);
-        } catch (\Throwable) {
+        } catch (Throwable) {
         }
     }
 
@@ -285,10 +304,10 @@ it('still loads relational models from a Manticore parent', function () {
 it('limit: a relation that needs a join or a subquery fails with an error', function (Closure $query) {
     expect($query)->toThrow(QueryException::class);
 })->with([
-    'belongsToMany'  => [fn () => RelPost::find(1)->tags],
+    'belongsToMany' => [fn () => RelPost::find(1)->tags],
     'hasManyThrough' => [fn () => RelPost::find(1)->noteComments],
-    'whereHas'       => [fn () => RelPost::whereHas('notes')->get()],
-    'withCount'      => [fn () => RelPost::withCount('notes')->get()],
+    'whereHas' => [fn () => RelPost::whereHas('notes')->get()],
+    'withCount' => [fn () => RelPost::withCount('notes')->get()],
 ]);
 
 it('limit: match() on a relation collides with the one Eloquent has', function () {

@@ -6,10 +6,10 @@ use ManticoreEloquent\Database\ManticoreConnector;
  * The DSN builder is the offline-testable part of the connector (connect()/getOptions()
  * need a live PDO, so they're exercised by the integration suite).
  */
-
 function manticoreConnector(): ManticoreConnector
 {
-    return new class extends ManticoreConnector {
+    return new class extends ManticoreConnector
+    {
         public function dsn(array $config): string
         {
             return $this->getDsn($config);

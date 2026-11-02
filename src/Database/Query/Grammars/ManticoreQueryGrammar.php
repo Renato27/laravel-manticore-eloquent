@@ -37,9 +37,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
     /**
      * Full-text MATCH, bound as a parameter so the search terms stay injection-safe.
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where
-     * @return string
      */
     protected function whereMatch(Builder $query, $where): string
     {
@@ -57,15 +55,13 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * since it runs with the vector of that document. Anything else that does gets a syntax
      * error, and the id is validated, so it cannot carry anything but a UUID.
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where
-     * @return string
      */
     protected function whereKnn(Builder $query, $where): string
     {
         if (is_array($where['vector'])) {
             $column = $this->wrap($where['column']);
-            $target = '(' . implode(', ', array_map([$this, 'formatVectorValue'], $where['vector'])) . ')';
+            $target = '('.implode(', ', array_map([$this, 'formatVectorValue'], $where['vector'])).')';
         } else {
             if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $where['column'])) {
                 throw new InvalidArgumentException("Invalid KNN column [{$where['column']}].");
@@ -77,7 +73,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
                 : (string) (int) $where['vector'];
         }
 
-        $sql = 'knn(' . $column . ', ' . (int) $where['k'] . ', ' . $target;
+        $sql = 'knn('.$column.', '.(int) $where['k'].', '.$target;
 
         $options = array_filter(
             $where['options'] ?? [],
@@ -88,21 +84,18 @@ class ManticoreQueryGrammar extends MySqlGrammar
             $pairs = [];
 
             foreach ($options as $key => $value) {
-                $pairs[] = $this->validateOptionKey($key) . '=' . $this->formatOptionValue($value);
+                $pairs[] = $this->validateOptionKey($key).'='.$this->formatOptionValue($value);
             }
 
-            $sql .= ', {' . implode(', ', $pairs) . '}';
+            $sql .= ', {'.implode(', ', $pairs).'}';
         }
 
-        return $sql . ')';
+        return $sql.')';
     }
 
     /**
      * Render a query-vector component as a bare float literal (e.g. 0.1, 5.0), using the
      * shortest round-trippable form and never scientific-notation surprises for normal ranges.
-     *
-     * @param  float  $value
-     * @return string
      */
     protected function formatVectorValue(float $value): string
     {
@@ -114,39 +107,36 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * is a quoted literal. Manticore needs the options arg present before the field, so an
      * empty {} is emitted when a field is scoped without options.
      *
-     * @param  string|null  $field
      * @param  array<string, mixed>  $options
-     * @return string
      */
     public function compileHighlight(?string $field = null, array $options = []): string
     {
         $args = [];
 
         if (! empty($options)) {
-            $args[] = '{' . $this->formatHighlightOptions($options) . '}';
+            $args[] = '{'.$this->formatHighlightOptions($options).'}';
         } elseif ($field !== null) {
             $args[] = '{}';
         }
 
         if ($field !== null) {
-            $args[] = "'" . str_replace("'", "\\'", $field) . "'";
+            $args[] = "'".str_replace("'", "\\'", $field)."'";
         }
 
-        return 'HIGHLIGHT(' . implode(', ', $args) . ')';
+        return 'HIGHLIGHT('.implode(', ', $args).')';
     }
 
     /**
      * Render HIGHLIGHT() options as comma-separated key=value pairs.
      *
      * @param  array<string, mixed>  $options
-     * @return string
      */
     protected function formatHighlightOptions(array $options): string
     {
         $pairs = [];
 
         foreach ($options as $key => $value) {
-            $pairs[] = $key . '=' . $this->formatHighlightOptionValue($value);
+            $pairs[] = $key.'='.$this->formatHighlightOptionValue($value);
         }
 
         return implode(', ', $pairs);
@@ -154,9 +144,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
 
     /**
      * Render a single HIGHLIGHT() option value: bools as 0/1, numbers bare, strings quoted.
-     *
-     * @param  mixed  $value
-     * @return string
      */
     protected function formatHighlightOptionValue(mixed $value): string
     {
@@ -172,15 +159,13 @@ class ManticoreQueryGrammar extends MySqlGrammar
             return var_export($value, true);
         }
 
-        return "'" . str_replace("'", "\\'", (string) $value) . "'";
+        return "'".str_replace("'", "\\'", (string) $value)."'";
     }
 
     /**
      * Manticore has no row-level locking, so FOR UPDATE / LOCK IN SHARE MODE compile away.
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
      * @param  bool|string  $value
-     * @return string
      */
     protected function compileLock(Builder $query, $value): string
     {
@@ -191,9 +176,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * Compile the SELECT, then tack on Manticore's trailing OPTION and FACET clauses. Manticore
      * returns 20 rows by default, so a query without a limit asks for all of them, as Eloquent
      * promises.
-     *
-     * @param  \Illuminate\Database\Query\Builder  $query
-     * @return string
      */
     public function compileSelect(Builder $query): string
     {
@@ -216,9 +198,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
     /**
      * What a row-returning select needs on Manticore: a limit that reaches every row, and a GROUP
      * BY in place of the DISTINCT it does not have.
-     *
-     * @param  \ManticoreEloquent\Database\Query\ManticoreQueryBuilder  $query
-     * @return \ManticoreEloquent\Database\Query\ManticoreQueryBuilder
      */
     protected function withManticoreDefaults(ManticoreQueryBuilder $query): ManticoreQueryBuilder
     {
@@ -238,10 +217,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
 
     /**
      * REPLACE INTO is just an INSERT with the verb swapped.
-     *
-     * @param  \Illuminate\Database\Query\Builder  $query
-     * @param  array  $values
-     * @return string
      */
     public function compileReplace(Builder $query, array $values): string
     {
@@ -253,10 +228,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
     /**
      * Partial REPLACE: REPLACE INTO ... SET ... WHERE id = ?. Expression values (e.g. a
      * vector tuple) are inlined; every other value is a binding, and the id binding goes last.
-     *
-     * @param  \Illuminate\Database\Query\Builder  $query
-     * @param  array  $values
-     * @return string
      */
     public function compileReplaceSet(Builder $query, array $values): string
     {
@@ -276,7 +247,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * `table`.`column`, so filters on the query's own table go out bare. Queries with a join are
      * left as they are.
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
+     * @param  Builder  $query
      * @return array
      */
     protected function compileWheresToArray($query)
@@ -285,7 +256,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
             return parent::compileWheresToArray($query);
         }
 
-        $qualifier = last(preg_split('/\s+as\s+/i', $query->from)) . '.';
+        $qualifier = last(preg_split('/\s+as\s+/i', $query->from)).'.';
         $wheres = [];
 
         foreach ($query->wheres as $where) {
@@ -309,7 +280,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * @param  string  $value
      * @return string
      *
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     protected function wrapJsonSelector($value)
     {
@@ -329,13 +300,12 @@ class ManticoreQueryGrammar extends MySqlGrammar
      */
     protected function compileJsonUpdateColumn($key, $value)
     {
-        return $this->wrap($key) . ' = ' . (is_bool($value) ? (int) $value : $this->parameter($value));
+        return $this->wrap($key).' = '.(is_bool($value) ? (int) $value : $this->parameter($value));
     }
 
     /**
      * Manticore has no NULL outside JSON: a column without a value holds its type's empty value.
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where
      * @return string
      */
@@ -343,13 +313,12 @@ class ManticoreQueryGrammar extends MySqlGrammar
     {
         $empty = $this->emptyLiteral($query, $where['column']);
 
-        return $this->wrap($where['column']) . ($empty === null ? ' is null' : ' = ' . $empty);
+        return $this->wrap($where['column']).($empty === null ? ' is null' : ' = '.$empty);
     }
 
     /**
      * The opposite of whereNull().
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
      * @param  array  $where
      * @return string
      */
@@ -357,15 +326,11 @@ class ManticoreQueryGrammar extends MySqlGrammar
     {
         $empty = $this->emptyLiteral($query, $where['column']);
 
-        return $this->wrap($where['column']) . ($empty === null ? ' is not null' : ' != ' . $empty);
+        return $this->wrap($where['column']).($empty === null ? ' is not null' : ' != '.$empty);
     }
 
     /**
      * What a column without a value holds, for the types that can be filtered on it.
-     *
-     * @param  \Illuminate\Database\Query\Builder  $query
-     * @param  mixed  $column
-     * @return string|null
      */
     protected function emptyLiteral(Builder $query, mixed $column): ?string
     {
@@ -383,8 +348,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
     /**
      * Eloquent qualifies updated_at with the table, and Manticore rejects `table`.`column`.
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
-     * @param  array  $values
      * @return string
      */
     protected function compileUpdateColumns(Builder $query, array $values)
@@ -401,9 +364,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
     /**
      * Build the trailing OPTION clause. Manticore caps results at max_matches (1000 by
      * default), so a query that reaches past that raises the cap unless it was set by hand.
-     *
-     * @param  \ManticoreEloquent\Database\Query\ManticoreQueryBuilder  $query
-     * @return string
      */
     protected function compileOptionClause(ManticoreQueryBuilder $query): string
     {
@@ -425,17 +385,14 @@ class ManticoreQueryGrammar extends MySqlGrammar
         $pairs = [];
 
         foreach ($options as $key => $value) {
-            $pairs[] = $this->validateOptionKey($key) . '=' . $this->formatOptionValue($value);
+            $pairs[] = $this->validateOptionKey($key).'='.$this->formatOptionValue($value);
         }
 
-        return ' OPTION ' . implode(', ', $pairs);
+        return ' OPTION '.implode(', ', $pairs);
     }
 
     /**
      * Build the trailing FACET clause from whatever facets the query collected.
-     *
-     * @param  \ManticoreEloquent\Database\Query\ManticoreQueryBuilder  $query
-     * @return string
      */
     protected function compileFacetClause(ManticoreQueryBuilder $query): string
     {
@@ -445,17 +402,15 @@ class ManticoreQueryGrammar extends MySqlGrammar
             return '';
         }
 
-        return ' ' . implode(' ', array_map(static fn ($f) => 'FACET ' . $f, $facets));
+        return ' '.implode(' ', array_map(static fn ($f) => 'FACET '.$f, $facets));
     }
 
     /**
      * An option name Manticore will accept is a bare identifier, so that — and not a list of
      * known options — is what gets enforced. Any option the server grows keeps working.
      *
-     * @param  string  $key
-     * @return string
      *
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     protected function validateOptionKey(string $key): string
     {
@@ -471,10 +426,8 @@ class ManticoreQueryGrammar extends MySqlGrammar
      * arrays as (a,b) or (k=v), and strings verbatim — most Manticore options are bare
      * keywords, so a string is left unquoted but must look like one.
      *
-     * @param  mixed  $value
-     * @return string
      *
-     * @throws \InvalidArgumentException
+     * @throws InvalidArgumentException
      */
     protected function formatOptionValue(mixed $value): string
     {
@@ -500,13 +453,13 @@ class ManticoreQueryGrammar extends MySqlGrammar
             if ($isAssoc) {
                 $pairs = [];
                 foreach ($value as $k => $v) {
-                    $pairs[] = $this->validateOptionKey((string) $k) . '=' . $this->formatOptionValue($v);
+                    $pairs[] = $this->validateOptionKey((string) $k).'='.$this->formatOptionValue($v);
                 }
 
-                return '(' . implode(',', $pairs) . ')';
+                return '('.implode(',', $pairs).')';
             }
 
-            return '(' . implode(',', array_map([$this, 'formatOptionValue'], $value)) . ')';
+            return '('.implode(',', array_map([$this, 'formatOptionValue'], $value)).')';
         }
 
         $value = (string) $value;

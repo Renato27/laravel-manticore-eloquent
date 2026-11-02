@@ -1,10 +1,12 @@
 <?php
 
+use Illuminate\Database\Query\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-function fullTextTable(): \Illuminate\Database\Query\Builder
+function fullTextTable(): Builder
 {
     return DB::connection('manticore')->table('fulltext_docs');
 }
@@ -12,8 +14,8 @@ function fullTextTable(): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     Schema::connection('manticore')->dropIfExists('fulltext_docs');
@@ -33,7 +35,7 @@ beforeEach(function () {
 afterEach(function () {
     try {
         Schema::connection('manticore')->dropIfExists('fulltext_docs');
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // Nothing to clean up when the server is not reachable.
     }
 });
@@ -41,22 +43,22 @@ afterEach(function () {
 it('takes any user text in matchText() as plain words', function (string $text) {
     expect(fullTextTable()->matchText($text)->orderBy('id')->pluck('id')->all())->toBe([1, 2]);
 })->with([
-    'parenthesis'  => ['alpha (beta'],
-    'closing'      => ['alpha) beta'],
-    'pipe'         => ['alpha | beta'],
-    'minus'        => ['alpha -beta'],
-    'bang'         => ['alpha !beta'],
-    'at'           => ['alpha @beta'],
-    'tilde'        => ['alpha ~beta'],
-    'quote'        => ['alpha "beta'],
+    'parenthesis' => ['alpha (beta'],
+    'closing' => ['alpha) beta'],
+    'pipe' => ['alpha | beta'],
+    'minus' => ['alpha -beta'],
+    'bang' => ['alpha !beta'],
+    'at' => ['alpha @beta'],
+    'tilde' => ['alpha ~beta'],
+    'quote' => ['alpha "beta'],
     'single quote' => ["alpha 'beta"],
-    'ampersand'    => ['alpha & beta'],
-    'slash'        => ['alpha / beta'],
-    'caret'        => ['^alpha beta'],
-    'dollar'       => ['alpha beta$'],
-    'equals'       => ['=alpha beta'],
-    'less than'    => ['alpha << beta'],
-    'backslash'    => ['alpha \\ beta'],
+    'ampersand' => ['alpha & beta'],
+    'slash' => ['alpha / beta'],
+    'caret' => ['^alpha beta'],
+    'dollar' => ['alpha beta$'],
+    'equals' => ['=alpha beta'],
+    'less than' => ['alpha << beta'],
+    'backslash' => ['alpha \\ beta'],
 ]);
 
 it('does not let matchText() turn a word into an operator', function () {
@@ -88,7 +90,7 @@ it('keeps other filters when match() comes after them', function () {
 
 it('fails loudly on an or next to match(), which the server does not have', function () {
     fullTextTable()->where('views', 1)->match('alpha', null, 'or')->get();
-})->throws(\Illuminate\Database\QueryException::class);
+})->throws(QueryException::class);
 
 it('runs whereFullText() on one or several fields', function () {
     expect(fullTextTable()->whereFullText('body', 'alpha')->pluck('id')->all())->toBe([3])

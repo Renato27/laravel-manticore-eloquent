@@ -10,8 +10,6 @@ trait HasManticore
     /**
      * Query this model through Manticore on demand, leaving its normal connection alone.
      * Honors a searchableAs() method to pick the index name.
-     *
-     * @return \Illuminate\Database\Eloquent\Builder
      */
     public static function manticore(): EloquentBuilder
     {

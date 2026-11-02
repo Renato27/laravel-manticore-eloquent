@@ -1,5 +1,6 @@
 <?php
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -10,15 +11,16 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
  * The parts of Eloquent and the Query Builder the package inherits, run against a real
  * Manticore, plus the ones that do not work. Those are listed in docs/known-limits.md.
  */
-
 class FeaturePost extends ManticoreModel
 {
     protected $table = 'feature_posts';
+
     protected $guarded = [];
+
     public $timestamps = false;
 }
 
-function featureTable(): \Illuminate\Database\Query\Builder
+function featureTable(): Builder
 {
     return DB::connection('manticore')->table('feature_posts');
 }
@@ -26,8 +28,8 @@ function featureTable(): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     $schema = Schema::connection('manticore');
@@ -47,7 +49,7 @@ afterEach(function () {
     foreach (['feature_posts'] as $table) {
         try {
             Schema::connection('manticore')->dropIfExists($table);
-        } catch (\Throwable) {
+        } catch (Throwable) {
         }
     }
 });
@@ -177,8 +179,8 @@ it('runs upsert() as a REPLACE when every column is written', function () {
 it('refuses an upsert() a REPLACE could not honor', function (array $unique, ?array $update) {
     featureTable()->upsert(['id' => 1, 'title' => 'x', 'views' => 2, 'slug' => 'c'], $unique, $update);
 })->with([
-    'another unique key'  => [['slug'], null],
-    'a partial update'    => [['id'], ['views']],
+    'another unique key' => [['slug'], null],
+    'a partial update' => [['id'], ['views']],
 ])->throws(LogicException::class, 'upsert()');
 
 it('does nothing on an empty upsert()', function () {
@@ -241,10 +243,10 @@ it('limit: a transaction can only write to one table', function () {
 it('limit: SQL the server does not have fails with its error', function (Closure $query) {
     expect(fn () => $query(featureTable())->get())->toThrow(QueryException::class);
 })->with([
-    'union'       => [fn ($q) => $q->union(featureTable())],
-    'like'        => [fn ($q) => $q->where('slug', 'like', 'a%')],
+    'union' => [fn ($q) => $q->union(featureTable())],
+    'like' => [fn ($q) => $q->where('slug', 'like', 'a%')],
     'whereColumn' => [fn ($q) => $q->whereColumn('views', 'id')],
-    'whereDate'   => [fn ($q) => $q->whereDate('views', '2026-01-01')],
+    'whereDate' => [fn ($q) => $q->whereDate('views', '2026-01-01')],
     'whereExists' => [fn ($q) => $q->whereExists(fn ($sub) => $sub->from('feature_posts'))],
-    'a subquery'  => [fn ($q) => $q->whereIn('id', fn ($sub) => $sub->select('id')->from('feature_posts'))],
+    'a subquery' => [fn ($q) => $q->whereIn('id', fn ($sub) => $sub->select('id')->from('feature_posts'))],
 ]);

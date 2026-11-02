@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use ManticoreEloquent\Concerns\HasManticore;
 use ManticoreEloquent\Database\Schema\ManticoreSchemaGrammar;
@@ -42,7 +43,6 @@ function manticoreBootedSchemaSql(string $table, callable $define): array
  * Boots a Testbench app (no live server needed) to exercise the two ways a model reaches
  * Manticore: the HasManticore gateway and the ManticoreModel base class.
  */
-
 class GatewayCompany extends Model
 {
     use HasManticore;
@@ -100,12 +100,12 @@ it('honors an explicit connection set on the model', function () {
 });
 
 it('registers the Blueprint macros for Manticore column types', function () {
-    expect(Illuminate\Database\Schema\Blueprint::hasMacro('mva'))->toBeTrue();
-    expect(Illuminate\Database\Schema\Blueprint::hasMacro('mva64'))->toBeTrue();
-    expect(Illuminate\Database\Schema\Blueprint::hasMacro('floatVector'))->toBeTrue();
-    expect(Illuminate\Database\Schema\Blueprint::hasMacro('manticoreOptions'))->toBeTrue();
-    expect(Illuminate\Database\Schema\Blueprint::hasMacro('minInfixLen'))->toBeTrue();
-    expect(Illuminate\Database\Schema\Blueprint::hasMacro('morphology'))->toBeTrue();
+    expect(Blueprint::hasMacro('mva'))->toBeTrue();
+    expect(Blueprint::hasMacro('mva64'))->toBeTrue();
+    expect(Blueprint::hasMacro('floatVector'))->toBeTrue();
+    expect(Blueprint::hasMacro('manticoreOptions'))->toBeTrue();
+    expect(Blueprint::hasMacro('minInfixLen'))->toBeTrue();
+    expect(Blueprint::hasMacro('morphology'))->toBeTrue();
 });
 
 it('appends table-level options from the minInfixLen/morphology macros', function () {
@@ -150,7 +150,7 @@ it('keeps the key qualified on the normal connection of a gateway model', functi
 
 it('turns dates into Unix integers on a ManticoreModel', function () {
     expect((new DefaultArticle)->fromDateTime('2026-01-02 03:04:05'))
-        ->toBe(Illuminate\Support\Carbon::parse('2026-01-02 03:04:05')->getTimestamp())
+        ->toBe(Carbon::parse('2026-01-02 03:04:05')->getTimestamp())
         ->and((new DefaultArticle)->fromDateTime(null))->toBeNull();
 });
 
@@ -158,20 +158,21 @@ it('turns dates into Unix integers on a gateway model only while it is on Mantic
     $date = '2026-01-02 03:04:05';
 
     expect(GatewayCompany::manticore()->getModel()->fromDateTime($date))
-        ->toBe(Illuminate\Support\Carbon::parse($date)->getTimestamp())
+        ->toBe(Carbon::parse($date)->getTimestamp())
         ->and(GatewayCompany::manticore()->getModel()->fromDateTime(null))->toBeNull()
         ->and((new GatewayCompany)->fromDateTime($date))->toBe($date);
 });
 
 it('binds a date as a Unix integer on the Manticore connection', function () {
-    $date = Illuminate\Support\Carbon::parse('2026-01-02 03:04:05');
+    $date = Carbon::parse('2026-01-02 03:04:05');
 
     expect(DB::connection('manticore')->prepareBindings([$date, true, 'text', 5]))
         ->toBe([$date->getTimestamp(), 1, 'text', 5]);
 });
 
 it('compiles relation queries without the table qualifier', function () {
-    $post = new class extends ManticoreModel {
+    $post = new class extends ManticoreModel
+    {
         protected $table = 'posts';
 
         public function notes()
@@ -199,7 +200,7 @@ it('writes Unix integers on any Manticore connection, whatever its name', functi
     $model = (new DefaultArticle)->setConnection('manticore_two');
 
     expect($model->fromDateTime('2026-01-02 03:04:05'))
-        ->toBe(Illuminate\Support\Carbon::parse('2026-01-02 03:04:05')->getTimestamp());
+        ->toBe(Carbon::parse('2026-01-02 03:04:05')->getTimestamp());
 });
 
 it('keeps the date format of a ManticoreModel moved to another kind of connection', function () {

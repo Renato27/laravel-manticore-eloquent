@@ -3,6 +3,7 @@
 namespace ManticoreEloquent\Eloquent\Casts;
 
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Expression;
 
 class MvaCast implements CastsAttributes
@@ -10,8 +11,7 @@ class MvaCast implements CastsAttributes
     /**
      * A multi-value attribute reads back as "1,2".
      *
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  string  $key
+     * @param  Model  $model
      * @param  mixed  $value
      * @param  array<string, mixed>  $attributes
      * @return array<int, int>
@@ -28,8 +28,7 @@ class MvaCast implements CastsAttributes
     }
 
     /**
-     * @param  \Illuminate\Database\Eloquent\Model  $model
-     * @param  string  $key
+     * @param  Model  $model
      * @param  mixed  $value
      * @param  array<string, mixed>  $attributes
      * @return mixed
@@ -37,7 +36,7 @@ class MvaCast implements CastsAttributes
     public function set($model, string $key, $value, array $attributes)
     {
         return is_array($value)
-            ? new Expression('(' . implode(', ', array_map('intval', $value)) . ')')
+            ? new Expression('('.implode(', ', array_map('intval', $value)).')')
             : $value;
     }
 }

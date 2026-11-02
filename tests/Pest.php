@@ -15,5 +15,5 @@ uses(TestCase::class)->in('Feature', 'Integration');
  */
 function unlimited(string $sql): string
 {
-    return $sql . ' limit 2147483646 OPTION max_matches=2147483646';
+    return $sql.' limit 2147483646 OPTION max_matches=2147483646';
 }

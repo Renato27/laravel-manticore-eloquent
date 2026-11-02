@@ -1,5 +1,8 @@
 <?php
 
+use Carbon\CarbonPeriod;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -9,15 +12,16 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
  * Manticore is strict about types: a quoted number is rejected by a filter and ignored by an
  * UPDATE, and an unquoted one is dropped by a string column. A value takes its column's type.
  */
-
 class TypedDocument extends ManticoreModel
 {
     protected $table = 'typed_docs';
+
     protected $guarded = [];
+
     public $timestamps = false;
 }
 
-function typedTable(): \Illuminate\Database\Query\Builder
+function typedTable(): Builder
 {
     return DB::connection('manticore')->table('typed_docs');
 }
@@ -25,8 +29,8 @@ function typedTable(): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     $schema = Schema::connection('manticore');
@@ -49,7 +53,7 @@ beforeEach(function () {
 afterEach(function () {
     try {
         Schema::connection('manticore')->dropIfExists('typed_docs');
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // Nothing to clean up when the server is not reachable.
     }
 });
@@ -143,7 +147,7 @@ it('inserts numeric strings and replaces with them', function () {
 
 it('fails loudly on a word in a numeric column', function () {
     typedTable()->where('views', 'abc')->get();
-})->throws(\Illuminate\Database\QueryException::class);
+})->throws(QueryException::class);
 
 it('sees a column added in the same process', function () {
     expect(typedTable()->where('views', '10')->count())->toBe(1);
@@ -165,7 +169,7 @@ it('sees a table recreated by hand', function () {
 });
 
 it('takes dates as a period in whereBetween', function () {
-    $period = \Carbon\CarbonPeriod::create('1970-01-01 00:00:00', '1 minute', '1970-01-01 00:40:00');
+    $period = CarbonPeriod::create('1970-01-01 00:00:00', '1 minute', '1970-01-01 00:40:00');
 
     expect(typedTable()->whereBetween('seen_at', $period)->count())->toBe(2);
 });
@@ -188,7 +192,7 @@ it('leaves a raw table, an alias and an unknown table alone', function () {
     expect(DB::connection('manticore')->table('typed_docs as t')->where('t.views', '10')->pluck('id')->all())->toBe([1])
         ->and(DB::connection('manticore')->query()->fromRaw('typed_docs')->where('views', 10)->pluck('id')->all())->toBe([1])
         ->and(fn () => DB::connection('manticore')->table('no_such_table')->where('a', '1')->get())
-        ->toThrow(\Illuminate\Database\QueryException::class, 'no_such_table');
+        ->toThrow(QueryException::class, 'no_such_table');
 });
 
 it('leaves a table list and a prefix to the server', function () {

@@ -13,25 +13,21 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
 {
     /**
      * Merge the package config and register the Manticore database driver.
-     *
-     * @return void
      */
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__ . '/../config/manticore-eloquent.php', 'manticore-eloquent');
+        $this->mergeConfigFrom(__DIR__.'/../config/manticore-eloquent.php', 'manticore-eloquent');
 
         $this->registerManticoreDriver();
     }
 
     /**
      * Publish the config and wire up the connection and the macros.
-     *
-     * @return void
      */
     public function boot(): void
     {
         $this->publishes([
-            __DIR__ . '/../config/manticore-eloquent.php' => config_path('manticore-eloquent.php'),
+            __DIR__.'/../config/manticore-eloquent.php' => config_path('manticore-eloquent.php'),
         ], 'config');
 
         $this->registerManticoreDatabaseConnection();
@@ -41,8 +37,6 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
 
     /**
      * getWithFacets() on Eloquent, since the query builder knows nothing of scopes and models.
-     *
-     * @return void
      */
     protected function registerEloquentMacros(): void
     {
@@ -56,13 +50,11 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
 
     /**
      * Register the "manticore" database driver (driver => 'manticore').
-     *
-     * @return void
      */
     protected function registerManticoreDriver(): void
     {
         $this->app->bind('db.connector.manticore', function () {
-            return new ManticoreConnector();
+            return new ManticoreConnector;
         });
 
         Connection::resolverFor('manticore', function ($connection, $database, $prefix, $config) {
@@ -73,8 +65,6 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
     /**
      * Auto-derive the database connection from config/manticore-eloquent.php so users
      * don't have to edit config/database.php. Respects a manually-defined connection.
-     *
-     * @return void
      */
     protected function registerManticoreDatabaseConnection(): void
     {
@@ -86,14 +76,14 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
 
         config([
             "database.connections.{$name}" => [
-                'driver'   => 'manticore',
-                'host'     => config('manticore-eloquent.host', '127.0.0.1'),
-                'port'     => config('manticore-eloquent.port', 9306),
+                'driver' => 'manticore',
+                'host' => config('manticore-eloquent.host', '127.0.0.1'),
+                'port' => config('manticore-eloquent.port', 9306),
                 'database' => null,
                 'username' => config('manticore-eloquent.username', null),
                 'password' => config('manticore-eloquent.password', null),
-                'engine'   => config('manticore-eloquent.engine', null),
-                'prefix'   => '',
+                'engine' => config('manticore-eloquent.engine', null),
+                'prefix' => '',
             ],
         ]);
     }
@@ -101,8 +91,6 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
     /**
      * Register Manticore-specific column types on the schema Blueprint, so migrations
      * can declare them the Laravel way.
-     *
-     * @return void
      */
     protected function registerBlueprintMacros(): void
     {

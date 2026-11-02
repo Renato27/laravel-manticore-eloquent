@@ -7,6 +7,7 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
 use LogicException;
@@ -25,16 +26,11 @@ class ManticoreQueryBuilder extends Builder
      * Add a full-text MATCH() condition, written in Manticore's search syntax. For text typed by
      * a user, use matchText(). Pass a $field to scope it (e.g. 'title'), or leave it null to
      * search every field. Manticore takes one MATCH(), so several calls are combined into it.
-     *
-     * @param  string  $query
-     * @param  string|null  $field
-     * @param  string  $boolean
-     * @return static
      */
     public function match(string $query, ?string $field = null, string $boolean = 'and'): static
     {
         $expression = $field !== null && $field !== '' && $field !== '*'
-            ? '@' . $field . ' ' . $query
+            ? '@'.$field.' '.$query
             : $query;
 
         $where = ['type' => 'Match', 'value' => $expression, 'boolean' => $boolean];
@@ -43,7 +39,7 @@ class ManticoreQueryBuilder extends Builder
             $this->wheres[] = $where;
             $this->addBinding($expression, 'where');
         } elseif (($this->wheres[0]['type'] ?? null) === 'Match') {
-            $this->wheres[0]['value'] = '(' . $this->wheres[0]['value'] . ') (' . $expression . ')';
+            $this->wheres[0]['value'] = '('.$this->wheres[0]['value'].') ('.$expression.')';
             $this->bindings['where'][0] = $this->wheres[0]['value'];
         } else {
             array_unshift($this->wheres, $where);
@@ -56,11 +52,6 @@ class ManticoreQueryBuilder extends Builder
     /**
      * Add a full-text MATCH() condition for plain words, such as text typed by a user: nothing
      * in it is read as search syntax.
-     *
-     * @param  string  $text
-     * @param  string|null  $field
-     * @param  string  $boolean
-     * @return static
      */
     public function matchText(string $text, ?string $field = null, string $boolean = 'and'): static
     {
@@ -72,7 +63,6 @@ class ManticoreQueryBuilder extends Builder
      *
      * @param  string|array  $columns
      * @param  string  $value
-     * @param  array  $options
      * @param  string  $boolean
      * @return static
      */
@@ -80,7 +70,7 @@ class ManticoreQueryBuilder extends Builder
     {
         $columns = (array) $columns;
 
-        return $this->matchText($value, count($columns) > 1 ? '(' . implode(',', $columns) . ')' : $columns[0], $boolean);
+        return $this->matchText($value, count($columns) > 1 ? '('.implode(',', $columns).')' : $columns[0], $boolean);
     }
 
     /**
@@ -125,7 +115,6 @@ class ManticoreQueryBuilder extends Builder
      * Add a "where between" clause, with the values in their column's type.
      *
      * @param  string  $column
-     * @param  iterable  $values
      * @param  string  $boolean
      * @param  bool  $not
      * @return static
@@ -142,7 +131,6 @@ class ManticoreQueryBuilder extends Builder
     /**
      * Insert rows, with the values in their columns' types.
      *
-     * @param  array  $values
      * @return bool
      */
     public function insert(array $values)
@@ -153,7 +141,6 @@ class ManticoreQueryBuilder extends Builder
     /**
      * Insert a row and get its id, with the values in their columns' types.
      *
-     * @param  array  $values
      * @param  string|null  $sequence
      * @return int
      */
@@ -165,7 +152,6 @@ class ManticoreQueryBuilder extends Builder
     /**
      * Update documents, with the values in their columns' types.
      *
-     * @param  array  $values
      * @return int
      */
     public function update(array $values)
@@ -194,8 +180,6 @@ class ManticoreQueryBuilder extends Builder
      * Manticore's UPDATE has no LIMIT, so this updates every document that matches, where
      * Laravel stops at the first.
      *
-     * @param  array  $attributes
-     * @param  array|callable  $values
      * @return bool
      */
     public function updateOrInsert(array $attributes, array|callable $values = [])
@@ -216,8 +200,6 @@ class ManticoreQueryBuilder extends Builder
     /**
      * UPDATE and DELETE need a WHERE on Manticore, so a query meant for every document gets one
      * that matches them all. A UUID id only takes = and !=, so it is compared with a new UUID.
-     *
-     * @return void
      */
     protected function requireWhere(): void
     {
@@ -233,10 +215,6 @@ class ManticoreQueryBuilder extends Builder
      * quoted number, UPDATE skips it without an error, a string column drops an unquoted one,
      * and a timestamp column misreads a quoted value. PDO quotes anything but an int, so a
      * float is inlined, which is safe since it has been cast to one.
-     *
-     * @param  mixed  $column
-     * @param  mixed  $value
-     * @return mixed
      */
     protected function castToColumn(mixed $column, mixed $value): mixed
     {
@@ -258,9 +236,6 @@ class ManticoreQueryBuilder extends Builder
     /**
      * A Unix integer from a date string or a number in a string. Anything else is left for
      * the server to reject.
-     *
-     * @param  string  $value
-     * @return int|string
      */
     protected function timestampFrom(string $value): int|string
     {
@@ -273,9 +248,6 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * The type of a column of this query's table, if it can be known.
-     *
-     * @param  mixed  $column
-     * @return string|null
      */
     public function columnType(mixed $column): ?string
     {
@@ -285,7 +257,7 @@ class ManticoreQueryBuilder extends Builder
 
         $names = preg_split('/\s+as\s+/i', $this->from);
 
-        return $this->connection->columnTypes($names[0])[Str::after($column, last($names) . '.')] ?? null;
+        return $this->connection->columnTypes($names[0])[Str::after($column, last($names).'.')] ?? null;
     }
 
     /**
@@ -313,9 +285,6 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Whether a column holds a list of values.
-     *
-     * @param  string  $column
-     * @return bool
      */
     protected function isListColumn(string $column): bool
     {
@@ -324,9 +293,6 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * The value of a column that has none.
-     *
-     * @param  string  $column
-     * @return mixed
      */
     protected function emptyValue(string $column): mixed
     {
@@ -340,9 +306,6 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Put a row, or a list of rows, in their columns' types.
-     *
-     * @param  array  $rows
-     * @return array
      */
     protected function castRows(array $rows): array
     {
@@ -353,12 +316,11 @@ class ManticoreQueryBuilder extends Builder
      * Insert documents or rewrite the ones that exist, as a REPLACE. Manticore's only unique key
      * is the id, and REPLACE rewrites the whole document, so it cannot honor anything less.
      *
-     * @param  array  $values
      * @param  array|string  $uniqueBy
      * @param  array|null  $update
      * @return int
      *
-     * @throws \LogicException
+     * @throws LogicException
      */
     public function upsert(array $values, $uniqueBy, $update = null)
     {
@@ -372,7 +334,7 @@ class ManticoreQueryBuilder extends Builder
         if ((array) $uniqueBy !== ['id'] || array_diff($columns, $update ?? $columns, ['id']) !== []) {
             throw new LogicException(
                 'Manticore can only run upsert() as a REPLACE, keyed by id and writing every column. '
-                . 'To change some columns, use update(), or replaceWhereId() for one document.'
+                .'To change some columns, use update(), or replaceWhereId() for one document.'
             );
         }
 
@@ -385,11 +347,9 @@ class ManticoreQueryBuilder extends Builder
      * Manticore's UPDATE takes values, not expressions, so this could only be a read and a write,
      * which would lose increments made in between.
      *
-     * @param  array  $columns
-     * @param  array  $extra
      * @return int
      *
-     * @throws \LogicException
+     * @throws LogicException
      */
     public function incrementEach(array $columns, array $extra = [])
     {
@@ -399,11 +359,9 @@ class ManticoreQueryBuilder extends Builder
     /**
      * See incrementEach().
      *
-     * @param  array  $columns
-     * @param  array  $extra
      * @return int
      *
-     * @throws \LogicException
+     * @throws LogicException
      */
     public function decrementEach(array $columns, array $extra = [])
     {
@@ -414,8 +372,7 @@ class ManticoreQueryBuilder extends Builder
      * Run the select and read its facets, which come back as extra result sets. Each facet is
      * named by its alias or its field, and holds the field and a count(*).
      *
-     * @param  array  $columns
-     * @return array{rows: \Illuminate\Support\Collection, facets: array<string, \Illuminate\Support\Collection>}
+     * @return array{rows: Collection, facets: array<string, Collection>}
      */
     public function getWithFacets(array $columns = ['*']): array
     {
@@ -436,10 +393,6 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Set a single Manticore query OPTION.
-     *
-     * @param  string  $key
-     * @param  mixed  $value
-     * @return static
      */
     public function option(string $key, mixed $value): static
     {
@@ -450,9 +403,6 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Shortcut for the max_matches OPTION.
-     *
-     * @param  int  $value
-     * @return static
      */
     public function maxMatches(int $value): static
     {
@@ -469,22 +419,18 @@ class ManticoreQueryBuilder extends Builder
      * Manticore has no KNN by UUID, so with a UUID id the select reads that document's vector
      * first and searches with it, leaving the document out of the results. toSql() shows the id.
      *
-     * @param  string  $column
      * @param  array<int, int|float>|int|string  $vector
-     * @param  int  $k
      * @param  int|array<string, mixed>|null  $ef
-     * @param  string  $boolean
-     * @return static
      */
     public function knn(string $column, array|int|string $vector, int $k = 10, int|array|null $ef = null, string $boolean = 'and'): static
     {
         $this->wheres[] = [
-            'type'    => 'Knn',
-            'column'  => $column,
-            'vector'  => is_array($vector)
+            'type' => 'Knn',
+            'column' => $column,
+            'vector' => is_array($vector)
                 ? array_map(static fn ($value) => (float) $value, array_values($vector))
                 : $vector,
-            'k'       => $k,
+            'k' => $k,
             'options' => is_int($ef) ? ['ef' => $ef] : (array) $ef,
             'boolean' => $boolean,
         ];
@@ -497,10 +443,7 @@ class ManticoreQueryBuilder extends Builder
      * using the query from the MATCH() in the same statement; pass a field to scope it.
      * $options maps to Manticore's highlight settings, e.g. ['before_match' => '<b>'].
      *
-     * @param  string|null  $field
      * @param  array<string, mixed>  $options
-     * @param  string  $alias
-     * @return static
      */
     public function highlight(?string $field = null, array $options = [], string $alias = 'highlight'): static
     {
@@ -509,7 +452,7 @@ class ManticoreQueryBuilder extends Builder
         }
 
         $this->columns[] = new Expression(
-            $this->grammar->compileHighlight($field, $options) . ' as ' . $this->grammar->wrap($alias)
+            $this->grammar->compileHighlight($field, $options).' as '.$this->grammar->wrap($alias)
         );
 
         return $this;
@@ -517,10 +460,6 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Add a FACET clause. get() ignores the result, and getWithFacets() returns it.
-     *
-     * @param  string  $field
-     * @param  string|null  $alias
-     * @return static
      */
     public function facet(string $field, ?string $alias = null): static
     {
@@ -535,7 +474,6 @@ class ManticoreQueryBuilder extends Builder
      * Takes a single row or a list of rows, just like insert().
      *
      * @param  array<string, mixed>|array<int, array<string, mixed>>  $values
-     * @return bool
      */
     public function replace(array $values): bool
     {
@@ -569,9 +507,7 @@ class ManticoreQueryBuilder extends Builder
      * it creates a document holding just the given fields. Buddy only takes numeric ids, so
      * when the server rejects a UUID the merge is done here instead, which is not atomic.
      *
-     * @param  int|string  $id
      * @param  array<string, mixed>  $values
-     * @return bool
      *
      * @throws \InvalidArgumentException
      */
@@ -609,17 +545,15 @@ class ManticoreQueryBuilder extends Builder
      * REPLACE the whole of it. It has to read with SELECT *, because before Manticore 29.2.5
      * listing a text column by name on a UUID table returns it empty.
      *
-     * @param  string  $id
      * @param  array<string, mixed>  $values
-     * @return bool
      *
-     * @throws \RuntimeException
+     * @throws RuntimeException
      */
     protected function replaceMergingDocument(string $id, array $values): bool
     {
-        $table = $this->connection->getTablePrefix() . $this->from;
+        $table = $this->connection->getTablePrefix().$this->from;
 
-        foreach ($this->connection->select('DESC ' . $table) as $field) {
+        foreach ($this->connection->select('DESC '.$table) as $field) {
             if ($field->Type === 'text' && ! str_contains($field->Properties, 'stored')) {
                 throw new RuntimeException(
                     "Cannot partially replace a document in [{$table}]: text field [{$field->Field}] is not stored."
@@ -646,12 +580,11 @@ class ManticoreQueryBuilder extends Builder
      * Vector columns the server fills from another field. They must stay out of a REPLACE,
      * since Manticore refuses a value for them and regenerates them from the new text.
      *
-     * @param  string  $table
      * @return array<int, string>
      */
     protected function autoEmbeddedColumns(string $table): array
     {
-        $definition = (array) ($this->connection->select('SHOW CREATE TABLE ' . $table)[0] ?? []);
+        $definition = (array) ($this->connection->select('SHOW CREATE TABLE '.$table)[0] ?? []);
 
         preg_match_all(
             '/^\s*`?(\w+)`?\s+float_vector\b.*\bmodel_name\s*=/im',
@@ -666,17 +599,15 @@ class ManticoreQueryBuilder extends Builder
      * A list as a tuple literal. Every part is cast to a number, so inlining it is safe.
      *
      * @param  array<int, mixed>|string  $value
-     * @param  string  $type
-     * @return \Illuminate\Database\Query\Expression
      */
     protected function formatTuple(array|string $value, string $type): Expression
     {
         $parts = is_array($value) ? $value : array_filter(explode(',', $value), static fn (string $part) => $part !== '');
 
-        return new Expression('(' . implode(', ', array_map(
+        return new Expression('('.implode(', ', array_map(
             static fn ($part) => $type === 'float_vector' ? var_export((float) $part, true) : (string) (int) $part,
             $parts
-        )) . ')');
+        )).')');
     }
 
     /**
@@ -748,7 +679,7 @@ class ManticoreQueryBuilder extends Builder
     /**
      * Get a lazy collection for the given query, as runSelect() does for a knn() by UUID.
      *
-     * @return \Illuminate\Support\LazyCollection
+     * @return LazyCollection
      */
     public function cursor()
     {
@@ -763,8 +694,6 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Whether a knn() points at a document by UUID, which Manticore cannot do.
-     *
-     * @return bool
      */
     protected function hasKnnByUuid(): bool
     {
@@ -781,7 +710,7 @@ class ManticoreQueryBuilder extends Builder
      * Swap each knn() by UUID for the vector of that document, and leave the document out of
      * the results, which is what Manticore does for a numeric id.
      *
-     * @return bool  False when a document does not exist or has no vector.
+     * @return bool False when a document does not exist or has no vector.
      */
     protected function resolveKnnDocumentIds(): bool
     {

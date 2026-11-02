@@ -8,7 +8,6 @@ use ManticoreEloquent\Database\Schema\ManticoreSchemaBuilder;
  * suite). dropAllTables() is verified here with a mocked connection so the test never
  * touches a live server.
  */
-
 afterEach(fn () => Mockery::close());
 
 it('drops every index reported by SHOW TABLES', function () {

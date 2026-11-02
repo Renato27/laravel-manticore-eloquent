@@ -6,7 +6,6 @@ use Illuminate\Support\Facades\DB;
  * Downloads an embedding model, so it only runs when asked to:
  * MANTICORE_TEST_EMBEDDINGS=1 vendor/bin/pest tests/Integration/AutoEmbeddingsTest.php
  */
-
 beforeEach(function () {
     if (! getenv('MANTICORE_TEST_EMBEDDINGS')) {
         $this->markTestSkipped('Set MANTICORE_TEST_EMBEDDINGS=1 to run it.');
@@ -15,7 +14,7 @@ beforeEach(function () {
     DB::connection('manticore')->statement('DROP TABLE IF EXISTS it_embedded');
     DB::connection('manticore')->statement(
         "CREATE TABLE it_embedded (id uuid, title text, tag string attribute, vec float_vector knn_type='hnsw' "
-        . "hnsw_similarity='l2' model_name='sentence-transformers/all-MiniLM-L6-v2' from='title')"
+        ."hnsw_similarity='l2' model_name='sentence-transformers/all-MiniLM-L6-v2' from='title')"
     );
 });
 

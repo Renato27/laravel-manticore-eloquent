@@ -1,6 +1,6 @@
 <?php
 
-use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -9,11 +9,12 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
 /**
  * Manticore returns 20 rows unless told otherwise. Eloquent promises every row.
  */
-
 class RowLimitDocument extends ManticoreModel
 {
     protected $table = 'row_limit_docs';
+
     protected $guarded = [];
+
     public $timestamps = false;
 
     public function siblings()
@@ -22,7 +23,7 @@ class RowLimitDocument extends ManticoreModel
     }
 }
 
-function rowLimitTable(): \Illuminate\Database\Query\Builder
+function rowLimitTable(): Builder
 {
     return DB::connection('manticore')->table('row_limit_docs');
 }
@@ -30,8 +31,8 @@ function rowLimitTable(): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     $schema = Schema::connection('manticore');
@@ -54,7 +55,7 @@ beforeEach(function () {
 afterEach(function () {
     try {
         Schema::connection('manticore')->dropIfExists('row_limit_docs');
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // Nothing to clean up when the server is not reachable.
     }
 });

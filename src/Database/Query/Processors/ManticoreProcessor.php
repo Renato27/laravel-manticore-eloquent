@@ -10,7 +10,6 @@ class ManticoreProcessor extends MySqlProcessor
     /**
      * The MySQL protocol reports 0 as the id of a UUID document, which only LAST_INSERT_ID() has.
      *
-     * @param  \Illuminate\Database\Query\Builder  $query
      * @param  string  $sql
      * @param  array  $values
      * @param  string|null  $sequence

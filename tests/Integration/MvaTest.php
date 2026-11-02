@@ -1,6 +1,6 @@
 <?php
 
-use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use ManticoreEloquent\Eloquent\Casts\MvaCast;
@@ -9,12 +9,15 @@ use ManticoreEloquent\Eloquent\ManticoreModel;
 class MvaDocument extends ManticoreModel
 {
     protected $table = 'mva_docs';
+
     protected $guarded = [];
+
     public $timestamps = false;
+
     protected $casts = ['tag_ids' => MvaCast::class];
 }
 
-function mvaTable(): \Illuminate\Database\Query\Builder
+function mvaTable(): Builder
 {
     return DB::connection('manticore')->table('mva_docs');
 }
@@ -22,8 +25,8 @@ function mvaTable(): \Illuminate\Database\Query\Builder
 beforeEach(function () {
     try {
         DB::connection('manticore')->getPdo();
-    } catch (\Throwable $e) {
-        $this->markTestSkipped('Manticore not reachable on the MySQL port: ' . $e->getMessage());
+    } catch (Throwable $e) {
+        $this->markTestSkipped('Manticore not reachable on the MySQL port: '.$e->getMessage());
     }
 
     Schema::connection('manticore')->dropIfExists('mva_docs');
@@ -33,7 +36,7 @@ beforeEach(function () {
 afterEach(function () {
     try {
         Schema::connection('manticore')->dropIfExists('mva_docs');
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         // Nothing to clean up when the server is not reachable.
     }
 });
