@@ -24,7 +24,7 @@ grammar that inherits the whole framework.
 |---|---|
 | PHP | `^8.1` (with `pdo_mysql`) |
 | Laravel | `^10.0 \| ^11.0 \| ^12.0 \| ^13.0` |
-| Manticore Search | MySQL protocol enabled (default port `9306`) |
+| Manticore Search | Tested on `28.6.6` and later, with the MySQL protocol enabled (default port `9306`) |
 
 ## Installation
 

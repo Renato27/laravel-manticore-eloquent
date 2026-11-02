@@ -13,7 +13,9 @@
     "orchestra/testbench": "^8.0|^9.0|^10.0|^11.0",
     "pestphp/pest": "^2.0|^3.0|^4.0",
     "pestphp/pest-plugin-laravel": "^2.0|^3.0|^4.0",
-    "mockery/mockery": "^1.6"
+    "mockery/mockery": "^1.6",
+    "phpstan/phpstan": "^2.1",
+    "laravel/pint": "^1.0"
   },
   "autoload": {
     "psr-4": {
@@ -30,7 +32,9 @@
     "test:unit": "vendor/bin/pest --testsuite=Unit",
     "test:integration": "vendor/bin/pest --testsuite=Integration",
     "test:coverage": "vendor/bin/pest --coverage",
-    "test:coverage-min": "vendor/bin/pest --coverage --min=95"
+    "test:coverage-min": "vendor/bin/pest --coverage --min=95",
+    "lint": "vendor/bin/pint",
+    "analyse": "vendor/bin/phpstan analyse --memory-limit=1G"
   },
   "authors": [
     {

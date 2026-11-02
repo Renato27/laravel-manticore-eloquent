@@ -4,6 +4,9 @@ on:
   push:
     branches: [main, master]
   pull_request:
+  # Finds out about a Manticore release that breaks the driver before the next push does.
+  schedule:
+    - cron: '0 6 * * 1'
 
 jobs:
   unit:
@@ -35,15 +38,33 @@ jobs:
       - run: composer update --prefer-dist --no-interaction --no-progress
       - run: vendor/bin/pest --testsuite=Unit,Feature
 
+  quality:
+    runs-on: ubuntu-latest
+    name: Code style and static analysis
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo, pdo_mysql, mbstring
+          coverage: none
+      - run: composer update --prefer-dist --no-interaction --no-progress
+      - run: vendor/bin/pint --test
+      - run: composer analyse
+
   # Runs every suite, not only Integration, so its report is what the README's tests badge shows.
   integration:
     runs-on: ubuntu-latest
-    name: Integration · live Manticore
+    strategy:
+      fail-fast: false
+      matrix:
+        manticore: ['28.6.6', 'latest']
+    name: Integration · Manticore ${{ matrix.manticore }}
     permissions:
       contents: write
     services:
       manticore:
-        image: manticoresearch/manticore
+        image: manticoresearch/manticore:${{ matrix.manticore }}
         ports:
           - 9306:9306
           - 9308:9308
@@ -57,7 +78,7 @@ jobs:
       - run: composer update --prefer-dist --no-interaction --no-progress
       - name: Wait for Manticore
         run: |
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if mysql -h127.0.0.1 -P9306 -e 'SHOW TABLES;' 2>/dev/null; then break; fi
             sleep 2
           done
@@ -65,8 +86,9 @@ jobs:
         env:
           MANTICORE_HOST: 127.0.0.1
           MANTICORE_PORT: 9306
+          MANTICORE_TEST_EMBEDDINGS: ${{ github.event_name == 'schedule' && matrix.manticore == 'latest' && '1' || '' }}
       - name: Publish the tests badge
-        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+        if: ${{ !cancelled() && matrix.manticore == 'latest' && github.event_name == 'push' && github.ref == 'refs/heads/master' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

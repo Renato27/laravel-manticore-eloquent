@@ -671,7 +671,7 @@ class ManticoreQueryBuilder extends Builder
      */
     protected function formatTuple(array|string $value, string $type): Expression
     {
-        $parts = is_array($value) ? $value : array_filter(explode(',', $value), 'strlen');
+        $parts = is_array($value) ? $value : array_filter(explode(',', $value), static fn (string $part) => $part !== '');
 
         return new Expression('(' . implode(', ', array_map(
             static fn ($part) => $type === 'float_vector' ? var_export((float) $part, true) : (string) (int) $part,
