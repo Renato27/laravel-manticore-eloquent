@@ -554,7 +554,7 @@ it('keeps a json path intact when compiling updated columns', function () {
     $query = manticoreQuery('docs');
 
     expect($query->getGrammar()->compileUpdate($query, ['meta->a' => 1]))
-        ->toContain('json_set(`meta`');
+        ->toContain('set meta.a = ?');
 });
 
 it('leaves its own table out of filters, since Manticore rejects qualified columns', function () {
@@ -777,3 +777,13 @@ it('compiles whereFullText() to MATCH', function () {
     expect(manticoreQuery()->whereFullText('title', 'a(b')->getBindings())->toBe(['@title a\\(b'])
         ->and(manticoreQuery()->whereFullText(['title', 'body'], 'x')->getBindings())->toBe(['@(title,body) x']);
 });
+
+it('writes a json path the way Manticore reads it', function () {
+    expect(manticoreQuery('docs')->where('meta->a->b', 1)->toSql())->toBe(unlimited('select * from `docs` where meta.a.b = ?'))
+        ->and(manticoreQuery('docs')->whereNull('meta->a')->toSql())->toBe(unlimited('select * from `docs` where meta.a is null'))
+        ->and(manticoreQuery('docs')->where('meta->l[0]', 1)->toSql())->toBe(unlimited('select * from `docs` where meta.l[0] = ?'));
+});
+
+it('refuses a json path with anything but names and indexes, since it goes out unquoted', function (string $path) {
+    expect(fn () => manticoreQuery('docs')->where($path, 1)->toSql())->toThrow(InvalidArgumentException::class, 'Invalid JSON path');
+})->with(['meta->a` = 1 or `b', 'meta->a b', "meta->'a'", 'me ta->a', 'meta->a)--']);

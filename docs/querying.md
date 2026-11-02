@@ -49,6 +49,19 @@ without a limit, such as `all()`, `get()` or a relation, returns every row, and 
 raised when you page further, so deep `paginate()`/`offset()` just works. Setting `maxMatches()`
 yourself caps the results at that number.
 
+## JSON columns
+
+Laravel's `->` paths work in filters, selects, ordering and updates:
+
+```php
+Article::where('meta->author->id', 7)->orderBy('meta->rank')->get();
+Article::where('id', 1)->update(['meta->rank' => 5]);
+```
+
+Manticore compares types strictly, so `where('meta->rank', '5')` does not find the number `5`. An
+update can only change a number that already exists at that path. `whereJsonContains()` and
+`whereJsonLength()` fail with an error: Manticore has no equivalent filter.
+
 ## Highlighting
 
 ```php

@@ -280,6 +280,36 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
+     * A JSON path is written meta.a.b on Manticore. It cannot be quoted, so it can only hold names
+     * and array indexes.
+     *
+     * @param  string  $value
+     * @return string
+     *
+     * @throws \InvalidArgumentException
+     */
+    protected function wrapJsonSelector($value)
+    {
+        if (! preg_match('/^\w+(->\w+(\[\d+\])*)+$/', $value)) {
+            throw new InvalidArgumentException("Invalid JSON path [{$value}].");
+        }
+
+        return str_replace('->', '.', $value);
+    }
+
+    /**
+     * Manticore writes a value at a JSON path directly, without a function.
+     *
+     * @param  string  $key
+     * @param  mixed  $value
+     * @return string
+     */
+    protected function compileJsonUpdateColumn($key, $value)
+    {
+        return $this->wrap($key) . ' = ' . (is_bool($value) ? (int) $value : $this->parameter($value));
+    }
+
+    /**
      * Manticore has no NULL outside JSON: a column without a value holds its type's empty value.
      *
      * @param  \Illuminate\Database\Query\Builder  $query
@@ -290,7 +320,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
     {
         $empty = $this->emptyLiteral($query, $where['column']);
 
-        return $empty === null ? parent::whereNull($query, $where) : $this->wrap($where['column']) . ' = ' . $empty;
+        return $this->wrap($where['column']) . ($empty === null ? ' is null' : ' = ' . $empty);
     }
 
     /**
@@ -304,7 +334,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
     {
         $empty = $this->emptyLiteral($query, $where['column']);
 
-        return $empty === null ? parent::whereNotNull($query, $where) : $this->wrap($where['column']) . ' != ' . $empty;
+        return $this->wrap($where['column']) . ($empty === null ? ' is not null' : ' != ' . $empty);
     }
 
     /**

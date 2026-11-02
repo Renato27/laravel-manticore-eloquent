@@ -784,3 +784,68 @@ it('searches several indexes through searchableAs()', function () {
         }
     }
 });
+
+function withJsonTable(Closure $test): void
+{
+    $schema = Schema::connection('manticore');
+    $schema->dropIfExists('it_json');
+    $schema->create('it_json', function (Blueprint $table) {
+        $table->json('meta');
+        $table->integer('views');
+    });
+
+    try {
+        $test(fn () => DB::connection('manticore')->table('it_json'));
+    } finally {
+        $schema->dropIfExists('it_json');
+    }
+}
+
+it('filters by a json path', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => '{"a":1,"s":"x","b":{"c":2},"f":1.5}', 'views' => 1]);
+        $table()->insert(['id' => 2, 'meta' => '{"a":2,"s":"y","b":{"c":3},"f":2.5}', 'views' => 2]);
+
+        expect($table()->where('meta->a', 1)->pluck('id')->all())->toBe([1])
+            ->and($table()->where('meta->a', '>', 1)->pluck('id')->all())->toBe([2])
+            ->and($table()->where('meta->s', 'y')->pluck('id')->all())->toBe([2])
+            ->and($table()->where('meta->b->c', 3)->pluck('id')->all())->toBe([2])
+            ->and($table()->where('meta->f', '>', 2.0)->pluck('id')->all())->toBe([2])
+            ->and($table()->whereIn('meta->a', [1, 2])->count())->toBe(2)
+            ->and($table()->whereNotNull('meta->s')->count())->toBe(2)
+            ->and($table()->whereNull('meta->nope')->count())->toBe(2)
+            ->and($table()->orderBy('meta->a', 'desc')->pluck('id')->all())->toBe([2, 1]);
+    });
+});
+
+it('selects a json path', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => '{"a":7}', 'views' => 1]);
+
+        expect((int) $table()->select('meta->a as a')->first()->a)->toBe(7);
+    });
+});
+
+it('updates a number at a json path', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => '{"a":1,"b":{"c":2},"f":1.5,"on":1}', 'views' => 1]);
+
+        $table()->where('id', 1)->update(['meta->a' => 5, 'meta->b->c' => 6, 'meta->f' => 2.5, 'meta->on' => false, 'views' => 9]);
+
+        $meta = json_decode($table()->where('id', 1)->value('meta'), true);
+
+        expect($meta)->toBe(['a' => 5, 'b' => ['c' => 6], 'f' => 2.5, 'on' => 0])
+            ->and((int) $table()->where('id', 1)->value('views'))->toBe(9);
+    });
+});
+
+it('fails loudly on what the server cannot do with json', function () {
+    withJsonTable(function (Closure $table) {
+        $table()->insert(['id' => 1, 'meta' => '{"a":1,"l":[1]}', 'views' => 1]);
+
+        expect(fn () => $table()->where('id', 1)->update(['meta->a' => 'text']))->toThrow(QueryException::class)
+            ->and(fn () => $table()->where('id', 1)->update(['meta->new' => 1]))->toThrow(QueryException::class)
+            ->and(fn () => $table()->whereJsonContains('meta->l', 1)->get())->toThrow(QueryException::class)
+            ->and(fn () => $table()->whereJsonLength('meta->l', 1)->get())->toThrow(QueryException::class);
+    });
+});
