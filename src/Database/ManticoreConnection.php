@@ -4,6 +4,7 @@ namespace ManticoreEloquent\Database;
 
 use DateTimeInterface;
 use Illuminate\Database\MySqlConnection;
+use Illuminate\Database\QueryException;
 use ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
 use ManticoreEloquent\Database\Query\Processors\ManticoreProcessor;
@@ -12,6 +13,57 @@ use ManticoreEloquent\Database\Schema\ManticoreSchemaGrammar;
 
 class ManticoreConnection extends MySqlConnection
 {
+    /**
+     * Column types read from DESC, by table.
+     *
+     * @var array<string, array<string, string>>
+     */
+    protected array $columnTypes = [];
+
+    /**
+     * The type of each column of a table, as DESC reports it. Empty when it is not a single
+     * table that exists, which leaves the server to answer whatever is asked of it.
+     *
+     * @param  string  $table
+     * @return array<string, string>
+     */
+    public function columnTypes(string $table): array
+    {
+        $table = $this->getTablePrefix() . $table;
+
+        if (isset($this->columnTypes[$table])) {
+            return $this->columnTypes[$table];
+        }
+
+        if (! preg_match('/^\w+$/', $table)) {
+            return [];
+        }
+
+        try {
+            $columns = $this->select('DESC ' . $table);
+        } catch (QueryException) {
+            return [];
+        }
+
+        return $this->columnTypes[$table] = array_column($columns, 'Type', 'Field');
+    }
+
+    /**
+     * Forget the known column types when a statement can change them.
+     *
+     * @param  string  $query
+     * @param  array  $bindings
+     * @return bool
+     */
+    public function statement($query, $bindings = [])
+    {
+        if (preg_match('/^\s*(create|alter|drop)\b/i', $query)) {
+            $this->columnTypes = [];
+        }
+
+        return parent::statement($query, $bindings);
+    }
+
     /**
      * A timestamp column holds a Unix integer, so a date is sent as one. As a date string it
      * would be rejected by UPDATE, and stored as 0 by INSERT.

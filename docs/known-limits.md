@@ -28,8 +28,11 @@
 - **Timestamps are Unix integers.** Eloquent timestamps and date casts handle that for you, and
   so do dates in queries, as long as the table has both `created_at` and `updated_at`, which
   `$table->timestamps()` adds. Otherwise set `public $timestamps = false`. There are no null
-  dates, so a document without one reads as 1970. And never write a date as a *string* where
-  no cast converts it, as in `DB::table('articles')->insert(['created_at' => '2026-01-02'])`:
-  Manticore **silently stores `0`**. Pass a date object or an integer instead.
+  dates, so a document without one reads as 1970.
+- **A value takes the type of its column.** Manticore does not convert types, so the driver reads
+  each table's types with `DESC`, once per process, and sends `'10'` as a number to a numeric
+  column, `10` as a string to a string column and a date string as a Unix integer to a timestamp
+  column. A schema change made in this process is picked up by itself. One made elsewhere needs
+  a new process, such as a worker restart.
 - **Prepared statements.** The driver forces emulated prepares (Manticore's server-side
   prepare support is limited), so bindings — including `MATCH(?)` — are interpolated by PDO.

@@ -353,14 +353,6 @@ it('fails with an error when the table has no updated_at', function () {
         ->toThrow(QueryException::class, 'updated_at');
 });
 
-it('limit: a date string written without a date cast silently stores 0', function () {
-    createStampedTable();
-
-    docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a', 'created_at' => '2026-01-02 03:04:05']);
-
-    expect(stampedRow(1)->created_at)->toBe(0);
-});
-
 it('limit: a document without a timestamp reads as 1970', function () {
     createStampedTable();
     docsTable('docs_stamped_rt')->insert(['id' => 1, 'title' => 'a']);

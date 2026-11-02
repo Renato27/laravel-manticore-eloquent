@@ -7,6 +7,7 @@ use Illuminate\Database\Query\Expression;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Arr;
 use Illuminate\Support\LazyCollection;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class ManticoreQueryBuilder extends Builder
@@ -42,6 +43,182 @@ class ManticoreQueryBuilder extends Builder
         $this->addBinding($expression, 'where');
 
         return $this;
+    }
+
+    /**
+     * Add a basic where clause, with the value in its column's type.
+     *
+     * @param  mixed  $column
+     * @param  mixed  $operator
+     * @param  mixed  $value
+     * @param  string  $boolean
+     * @return static
+     */
+    public function where($column, $operator = null, $value = null, $boolean = 'and')
+    {
+        if (is_string($column)) {
+            [$value, $operator] = $this->prepareValueAndOperator($value, $operator, func_num_args() === 2);
+
+            $value = $this->castToColumn($column, $value);
+        }
+
+        return parent::where($column, $operator, $value, $boolean);
+    }
+
+    /**
+     * Add a "where in" clause, with the values in their column's type.
+     *
+     * @param  string  $column
+     * @param  mixed  $values
+     * @param  string  $boolean
+     * @param  bool  $not
+     * @return static
+     */
+    public function whereIn($column, $values, $boolean = 'and', $not = false)
+    {
+        if (is_array($values)) {
+            $values = array_map(fn ($value) => $this->castToColumn($column, $value), $values);
+        }
+
+        return parent::whereIn($column, $values, $boolean, $not);
+    }
+
+    /**
+     * Add a "where between" clause, with the values in their column's type.
+     *
+     * @param  string  $column
+     * @param  iterable  $values
+     * @param  string  $boolean
+     * @param  bool  $not
+     * @return static
+     */
+    public function whereBetween($column, iterable $values, $boolean = 'and', $not = false)
+    {
+        if (is_array($values)) {
+            $values = array_map(fn ($value) => $this->castToColumn($column, $value), Arr::flatten($values));
+        }
+
+        return parent::whereBetween($column, $values, $boolean, $not);
+    }
+
+    /**
+     * Insert rows, with the values in their columns' types.
+     *
+     * @param  array  $values
+     * @return bool
+     */
+    public function insert(array $values)
+    {
+        return parent::insert($this->castRows($values));
+    }
+
+    /**
+     * Insert a row and get its id, with the values in their columns' types.
+     *
+     * @param  array  $values
+     * @param  string|null  $sequence
+     * @return int
+     */
+    public function insertGetId(array $values, $sequence = null)
+    {
+        return parent::insertGetId($this->castRow($values), $sequence);
+    }
+
+    /**
+     * Update documents, with the values in their columns' types.
+     *
+     * @param  array  $values
+     * @return int
+     */
+    public function update(array $values)
+    {
+        return parent::update($this->castRow($values));
+    }
+
+    /**
+     * Put a value in the type of its column. Manticore does not convert: a filter rejects a
+     * quoted number, UPDATE skips it without an error, a string column drops an unquoted one,
+     * and a timestamp column misreads a quoted value. PDO quotes anything but an int, so a
+     * float is inlined, which is safe since it has been cast to one.
+     *
+     * @param  mixed  $column
+     * @param  mixed  $value
+     * @return mixed
+     */
+    protected function castToColumn(mixed $column, mixed $value): mixed
+    {
+        if (! is_int($value) && ! is_float($value) && ! is_string($value)) {
+            return $value;
+        }
+
+        $type = $this->columnType($column);
+
+        return match (true) {
+            $type === 'string' => (string) $value,
+            is_float($value), $type === 'float' && is_numeric($value) => new Expression(var_export((float) $value, true)),
+            $type === 'timestamp' && is_string($value) => $this->timestampFrom($value),
+            in_array($type, ['uint', 'bigint', 'bool'], true) && filter_var($value, FILTER_VALIDATE_INT) !== false => (int) $value,
+            default => $value,
+        };
+    }
+
+    /**
+     * A Unix integer from a date string or a number in a string. Anything else is left for
+     * the server to reject.
+     *
+     * @param  string  $value
+     * @return int|string
+     */
+    protected function timestampFrom(string $value): int|string
+    {
+        if (filter_var($value, FILTER_VALIDATE_INT) !== false) {
+            return (int) $value;
+        }
+
+        return strtotime($value) ?: $value;
+    }
+
+    /**
+     * The type of a column of this query's table, if it can be known.
+     *
+     * @param  mixed  $column
+     * @return string|null
+     */
+    protected function columnType(mixed $column): ?string
+    {
+        if (! is_string($column) || ! is_string($this->from)) {
+            return null;
+        }
+
+        $names = preg_split('/\s+as\s+/i', $this->from);
+
+        return $this->connection->columnTypes($names[0])[Str::after($column, last($names) . '.')] ?? null;
+    }
+
+    /**
+     * Put one row in its columns' types.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    protected function castRow(array $row): array
+    {
+        foreach ($row as $column => $value) {
+            $row[$column] = $this->castToColumn($column, $value);
+        }
+
+        return $row;
+    }
+
+    /**
+     * Put a row, or a list of rows, in their columns' types.
+     *
+     * @param  array  $rows
+     * @return array
+     */
+    protected function castRows(array $rows): array
+    {
+        return is_array(reset($rows)) ? array_map([$this, 'castRow'], $rows) : $this->castRow($rows);
     }
 
     /**
@@ -155,6 +332,8 @@ class ManticoreQueryBuilder extends Builder
             return true;
         }
 
+        $values = $this->castRows($values);
+
         if (! is_array(reset($values))) {
             $values = [$values];
         } else {
@@ -194,6 +373,8 @@ class ManticoreQueryBuilder extends Builder
         }
 
         $this->applyBeforeQueryCallbacks();
+
+        $values = $this->castRow($values);
 
         $bindings = $this->cleanBindings(array_values($values));
         $bindings[] = $id;

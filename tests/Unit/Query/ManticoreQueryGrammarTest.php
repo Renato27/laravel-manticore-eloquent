@@ -4,13 +4,22 @@ use Illuminate\Database\Query\Expression;
 
 use Illuminate\Database\Connection;
 use Illuminate\Database\QueryException;
+use ManticoreEloquent\Database\ManticoreConnection;
 use ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
 use ManticoreEloquent\Database\Query\Processors\ManticoreProcessor;
 
+function mockManticoreConnection()
+{
+    $connection = Mockery::mock(ManticoreConnection::class);
+    $connection->shouldReceive('columnTypes')->andReturn([])->byDefault();
+
+    return $connection;
+}
+
 function manticoreQuery(string $table = 'companies'): ManticoreQueryBuilder
 {
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
 
     return (new ManticoreQueryBuilder(
@@ -177,7 +186,7 @@ it('reaches an offset without a limit', function () {
 });
 
 it('leaves an aggregate without the unlimited clause', function () {
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('select')->once()
         ->withArgs(fn (string $sql) => str_starts_with($sql, 'select count(*)') && ! str_contains($sql, 'limit'))
@@ -269,7 +278,7 @@ it('inlines Expression values in a partial REPLACE instead of binding them', fun
 });
 
 it('binds the values and then the id for a partial REPLACE', function () {
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('insert')
         ->once()
@@ -305,7 +314,7 @@ it('rejects a non-positive id in replaceWhereId()', function (int $id) {
  */
 function expectPartialReplaceWithId(int|string $id): ManticoreQueryBuilder
 {
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('insert')
         ->once()
@@ -404,7 +413,7 @@ it('rejects a non-identifier column when knn() gets a uuid', function () {
  */
 function queryRejectingPartialReplace(string $message): ManticoreQueryBuilder
 {
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('getName')->andReturn('manticore');
     $connection->shouldReceive('insert')
@@ -431,7 +440,7 @@ it('does not emulate a partial replace by uuid when the server failed for anothe
 it('leaves an auto-embeddings column out of the emulated partial replace, so it is regenerated', function () {
     $uuid = '550e8400-e29b-41d4-a716-446655440000';
 
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('getName')->andReturn('manticore');
     $connection->shouldReceive('insert')
@@ -471,7 +480,7 @@ it('renders a float highlight option as a bare number', function () {
 });
 
 it('checks existence by selecting one row, since Manticore has no select exists()', function (array $rows, bool $expected) {
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('select')
         ->once()
@@ -510,7 +519,7 @@ it('continues keyset paging from the last id', function () {
 });
 
 it('leaves knn() by a numeric string id to the server, without reading the vector first', function () {
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('select')
         ->once()
@@ -525,7 +534,7 @@ it('leaves knn() by a numeric string id to the server, without reading the vecto
 });
 
 it('leaves the table out of updated columns, since Manticore rejects qualified columns', function () {
-    $connection = Mockery::mock(Connection::class);
+    $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('update')
         ->once()
@@ -636,4 +645,67 @@ it('does not change the query while compiling it', function () {
 
     expect($query->wheres)->toHaveCount(2);
     expect($query->wheres[0]['column'])->toBe('docs.tag');
+});
+
+function typedQuery(): ManticoreQueryBuilder
+{
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->with('docs')->andReturn([
+        'id' => 'bigint', 'views' => 'uint', 'score' => 'float', 'slug' => 'string',
+        'seen_at' => 'timestamp', 'on' => 'bool', 'ref' => 'uuid', 'meta' => 'json',
+    ]);
+
+    return (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs');
+}
+
+it('puts a filter value in its column type', function (string $column, mixed $value, mixed $binding) {
+    expect(typedQuery()->where($column, $value)->getBindings())->toBe([$binding]);
+})->with([
+    'a number in a uint column'    => ['views', '10', 10],
+    'a qualified bigint column'    => ['docs.id', '10', 10],
+    'a number in a bool column'    => ['on', '1', 1],
+    'a number in a timestamp'      => ['seen_at', '1000', 1000],
+    'a number in a string column'  => ['slug', 10, '10'],
+    'a string in a string column'  => ['slug', '10', '10'],
+    'a uuid is never converted'    => ['ref', '123', '123'],
+    'a json path is not a column'  => ['meta->views', '10', '10'],
+    'a word stays for the server'  => ['views', 'abc', 'abc'],
+    'a decimal in an int column'   => ['views', '1.5', '1.5'],
+    'an oversized number'          => ['id', '99999999999999999999', '99999999999999999999'],
+    'a word in a timestamp column' => ['seen_at', 'not a date', 'not a date'],
+]);
+
+it('reads a date string as a Unix integer in a timestamp column', function () {
+    expect(typedQuery()->where('seen_at', '2026-01-02 00:00:00')->getBindings())->toBe([strtotime('2026-01-02 00:00:00')]);
+});
+
+it('inlines a float, since PDO would quote it', function () {
+    $q = typedQuery()->where('score', '>', 2.5)->where('views', '>', 1.5)->where('score', '<', '7.5');
+
+    expect($q->toSql())->toBe(unlimited('select * from `docs` where `score` > 2.5 and `views` > 1.5 and `score` < 7.5'))
+        ->and($q->getBindings())->toBe([]);
+});
+
+it('never inlines anything but a number', function () {
+    $q = typedQuery()->where('score', "1 or 1=1");
+
+    expect($q->toSql())->toContain('`score` = ?')
+        ->and($q->getBindings())->toBe(['1 or 1=1']);
+});
+
+it('puts the values of whereIn and whereBetween in their column type', function () {
+    expect(typedQuery()->whereIn('views', ['1', '2'])->getBindings())->toBe([1, 2])
+        ->and(typedQuery()->whereNotIn('slug', [1])->getBindings())->toBe(['1'])
+        ->and(typedQuery()->whereBetween('views', ['1', '2'])->getBindings())->toBe([1, 2]);
+});
+
+it('leaves a filter on a raw table without looking up any type', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldNotReceive('columnTypes');
+
+    $query = new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor);
+
+    expect($query->fromRaw('docs')->where('views', '10')->getBindings())->toBe(['10']);
 });
