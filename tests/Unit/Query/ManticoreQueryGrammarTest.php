@@ -12,6 +12,7 @@ function mockManticoreConnection()
 {
     $connection = Mockery::mock(ManticoreConnection::class);
     $connection->shouldReceive('columnTypes')->andReturn([])->byDefault();
+    $connection->shouldReceive('getDatabaseName')->andReturn('')->byDefault();
 
     return $connection;
 }
@@ -577,14 +578,42 @@ it('recognises an aliased table', function () {
         ->toBe(unlimited('select * from `docs` as `d` where `tag` = ?'));
 });
 
-it('keeps a qualifier naming another table, which is an error worth seeing', function () {
+it('writes a qualified name without backticks, which Manticore rejects', function () {
     expect(manticoreQuery('docs')->where('other.tag', 'a')->toSql())
-        ->toBe(unlimited('select * from `docs` where `other`.`tag` = ?'));
+        ->toBe(unlimited('select * from `docs` where other.tag = ?'));
 });
 
-it('leaves a query with a join alone', function () {
-    expect(manticoreQuery('docs')->join('b', 'docs.id', '=', 'b.doc_id')->where('docs.tag', 'a')->whereNotNull('docs.x')->toSql())
-        ->toBe(unlimited('select * from `docs` inner join `b` on `docs`.`id` = `b`.`doc_id` where `docs`.`tag` = ? and `docs`.`x` is not null'));
+it('refuses a qualified name that could not go out unquoted', function (string $column) {
+    expect(fn () => manticoreQuery('docs')->where($column, 'a')->toSql())->toThrow(InvalidArgumentException::class, 'Invalid column');
+})->with(['a b.c', 'a.b c', 'a.`b`', 'a.b) or (1']);
+
+it('compiles a join the way Manticore reads it', function () {
+    expect(manticoreQuery('docs')->join('b', 'docs.id', '=', 'b.doc_id')->where('docs.tag', 'a')->where('b.n', 1)->toSql())
+        ->toBe(unlimited('select * from `docs` inner join `b` on docs.id = b.doc_id where docs.tag = ? and b.n = ?'));
+});
+
+it('selects a table of its own as a star and its columns bare', function () {
+    expect(manticoreQuery('docs')->select('docs.*', 'docs.a', 'docs.b as c', 'other.d as e', 'other.f')->join('other', 'docs.id', '=', 'other.x')->toSql())
+        ->toStartWith('select *, `a`, `b` as `c`, other.d as `e`, other.f from `docs`');
+});
+
+it('drops an alias that repeats the column, which makes the server return no rows', function () {
+    expect(manticoreQuery('docs')->select('docs.a as a', 'other.b as b')->join('other', 'docs.id', '=', 'other.x')->toSql())
+        ->toStartWith('select `a`, other.b from `docs`');
+});
+
+it('takes its own table out of a select, an order and a group without a join', function () {
+    expect(manticoreQuery('docs')->select('docs.*')->orderBy('docs.id')->groupBy('docs.a')->toSql())
+        ->toBe(unlimited('select * from `docs` group by `a` order by `id` asc'));
+});
+
+it('writes a sub-select the way Manticore reads it, with no alias and no option outside', function () {
+    $inner = manticoreQuery('docs')->select('id', 'a')->orderBy('a')->limit(5);
+
+    expect(manticoreQuery('docs')->fromSub($inner, 't')->orderBy('id')->toSql())
+        ->toBe('select * from (select `id`, `a` from `docs` order by `a` asc limit 5) order by `id` asc limit 2147483646')
+        ->and(manticoreQuery('docs')->fromSub($inner, 't')->orderBy('id')->limit(2000)->toSql())
+        ->toBe('select * from (select `id`, `a` from `docs` order by `a` asc limit 5) order by `id` asc limit 2000');
 });
 
 it('keeps a whereNotNull() written without a qualifier', function () {
@@ -614,7 +643,7 @@ it('leaves raw filters and raw tables alone', function () {
         ->toBe(unlimited('select * from `docs` where docs.a = ?'));
 
     expect(manticoreQuery('docs')->fromRaw('docs')->where('docs.a', 1)->toSql())
-        ->toBe(unlimited('select * from docs where `docs`.`a` = ?'));
+        ->toBe(unlimited('select * from docs where docs.a = ?'));
 });
 
 it('does not change the query while compiling it', function () {
@@ -812,3 +841,25 @@ it('compiles upsert() to a REPLACE', function () {
 it('refuses increments before reaching the server', function (string $method) {
     expect(fn () => manticoreQuery('docs')->{$method}('views'))->toThrow(LogicException::class, $method);
 })->with(['increment', 'decrement']);
+
+it('refuses a join type the server would run as an inner join', function () {
+    expect(fn () => manticoreQuery('docs')->rightJoin('b', 'docs.id', '=', 'b.x')->toSql())
+        ->toThrow(LogicException::class, 'cannot run a right join')
+        ->and(fn () => manticoreQuery('docs')->crossJoin('b')->toSql())
+        ->toThrow(LogicException::class, 'cannot run a cross join');
+});
+
+it('finds the type of a column of a joined table', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->with('b')->andReturn(['n' => 'uint', 's' => 'string']);
+
+    $query = (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))
+        ->from('a')->join('b', 'a.id', '=', 'b.x');
+
+    expect($query->where('b.n', '5')->where('b.s', 5)->getBindings())->toBe([5, '5']);
+});
+
+it('takes the operator shortcut with a value in the operator position', function () {
+    expect(typedQuery()->where('views', '5', null, 'and')->getBindings())->toBe([5]);
+});

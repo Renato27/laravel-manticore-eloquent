@@ -61,6 +61,9 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 | `DISTINCT` | a keyword | `GROUP BY` |
 | Upsert | `ON DUPLICATE KEY` | `REPLACE INTO`, when keyed by id and writing every column |
 | `UPDATE`/`DELETE` | `WHERE` optional | `WHERE` required, so one matching everything is added |
+| Qualified names | `` `table`.`column` `` | `table.column`, and bare for the query's own table |
+| Join rows | `column` | `table.column` for the joined table, which the processor renames |
+| Sub-select | `(select ...) as alias` | `(select ...)`, with `*`, order and limit outside |
 | Facets | — | `FACET field` clause, read with `getWithFacets()` |
 | Full-doc write | optional `REPLACE` | `REPLACE INTO` exposed via `replace()` |
 | Partial write | — | `REPLACE INTO … SET … WHERE id` via `replaceWhereId()` |
@@ -83,8 +86,8 @@ date without a value reads as `null`. [Compatibility](compatibility.md) has the 
 
 - Transactions cover inserts, replaces and deletes on one table. There are no row locks.
 - `UPDATE` only changes attributes; use `replace()` to rewrite a full document.
-- JOINs across indexes are limited in Manticore — prefer denormalized indexes.
-- Relations that need a join or a subquery do not work. See [Known limits](known-limits.md).
+- Joins are `INNER` or `LEFT`, one per query, and sub-selects only exist in `FROM`, so `whereHas()`
+  and `withCount()` do not work. See [Compatibility](compatibility.md).
 - `replaceWhereId()` and `knn()` by document id go through Manticore Buddy, which only takes
   numeric ids, so the builder handles UUIDs itself. `replaceWhereId()` tries the native
   statement, then falls back to read, merge and full `REPLACE`, which is not atomic. `knn()`

@@ -99,9 +99,10 @@ Company::manticore()->match('fintech')->paginate(); // Manticore
 ## Before you start
 
 Manticore is not MySQL. The driver translates what it can: a query without a limit returns every
-row, values take the type of their column, and `whereNull()` and `SoftDeletes` work. What the server
-cannot do fails with an error, such as `update()` of a full-text field or a relation that needs a
-join, like `belongsToMany`. [Compatibility](docs/compatibility.md) lists it all.
+row, values take the type of their column, and `whereNull()`, `SoftDeletes` and `belongsToMany` work.
+What the server does not have fails with an error, such as `update()` of a full-text field or
+`whereHas()`. [Compatibility](docs/compatibility.md) lists it all, with the manual's reference for
+each limit.
 
 ## Documentation
 

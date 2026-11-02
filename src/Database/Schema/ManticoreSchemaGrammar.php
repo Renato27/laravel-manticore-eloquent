@@ -111,6 +111,26 @@ class ManticoreSchemaGrammar extends Grammar
     }
 
     /**
+     * Manticore can only change a column from int to bigint.
+     *
+     * @see https://manual.manticoresearch.com/Updating_table_schema_and_settings
+     *
+     * @return array<int, string>
+     *
+     * @throws LogicException
+     */
+    public function compileChange(Blueprint $blueprint, Fluent $command, $connection = null)
+    {
+        $column = $command->column;
+
+        if ($column->type !== 'bigInteger') {
+            throw new LogicException("Manticore can only change a column to bigInteger, so it cannot change [{$column->name}] to [{$column->type}].");
+        }
+
+        return ['alter table '.$this->wrapTable($blueprint).' modify column '.$this->wrap($column).' bigint'];
+    }
+
+    /**
      * Compile one ALTER … DROP COLUMN per dropped column.
      *
      * @return array<int, string>
@@ -148,6 +168,8 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * The definition of a column, or a clear error when Manticore has no type for it.
+     *
+     * @see https://manual.manticoresearch.com/Creating_a_table/Data_types
      *
      * @return string
      *
@@ -397,6 +419,8 @@ class ManticoreSchemaGrammar extends Grammar
 
     /**
      * Manticore has no type for a time of day, so it stays as written.
+     *
+     * @see https://manual.manticoresearch.com/Creating_a_table/Data_types
      */
     protected function typeTime(Fluent $column): string
     {

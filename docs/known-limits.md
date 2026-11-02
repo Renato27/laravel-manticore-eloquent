@@ -1,16 +1,18 @@
 # Known limits
 
-- **Relations that need a join or a subquery fail with an error.** `hasOne`, `hasMany`,
-  `belongsTo`, `morphMany` and `morphTo` work, on demand and with `with()`, including across a
-  relational database in either direction. `belongsToMany`, `hasManyThrough`, `whereHas` and
-  `withCount` do not, because Manticore has no subqueries and these rely on them or on a join.
-  Run the two queries yourself instead.
+- **`whereHas()` and `withCount()` fail with an error.** Laravel writes them with a subquery in
+  `WHERE` or in the select list, and Manticore only takes
+  [sub-selects in `FROM`](https://manual.manticoresearch.com/Searching/Sub-selects). Run the two
+  queries instead. Every relation type loads, on demand and with `with()`, including `belongsToMany`
+  and `hasManyThrough`, and across a relational database for those without a join, in either
+  direction.
 - **`match()` on a relation collides with a method of Eloquent's own.** `$post->notes()->match('x')`
   throws a `TypeError`. Use `$post->notes()->getQuery()->match('x')` or `matchText()`.
-- **Transactions are limited, and there are no row locks.** `DB::transaction()` commits and rolls
-  back inserts, replaces and deletes on one table. Writing to a second table fails with an error.
-  `update()` **is not rolled back**, and a transaction cannot read its own writes. `lock()` and
-  `lockForUpdate()` do nothing.
+- **[Transactions](https://manual.manticoresearch.com/Data_creation_and_modification/Transactions)
+  are limited, and there are no row locks.** `DB::transaction()` commits and rolls back inserts,
+  replaces and deletes on one table. Writing to a second table fails with an error. `update()` **is
+  not rolled back**, and a transaction cannot read its own writes. `lock()` and `lockForUpdate()` do
+  nothing.
 - **`update()` and `delete()` take no `limit()` or `orderBy()`,** which fail with an error. For the
   same reason, `updateOrInsert()` updates every document that matches, not just the first.
 - **`increment()` and `decrement()` throw a `LogicException`.** Manticore's `UPDATE` takes values,
@@ -19,20 +21,17 @@
   `LogicException` otherwise, including on a model with timestamps, where a `REPLACE` would reset
   `created_at`. `insertOrIgnore()` fails with an error.
 - **`distinct()` becomes a `GROUP BY`** of the selected columns.
-- **Other SQL the server does not have fails with its error:** `union`, `like`, `whereColumn`,
-  `whereDate` and its relatives. [Compatibility](compatibility.md) has the full list.
+- **Other SQL fails with the server's error,** such as `union`, `like`, `whereColumn` and `whereDate`.
+  [Compatibility](compatibility.md) has the full list, with the manual's alternative for each.
 - **`update()` vs `replace()`.** Manticore `UPDATE` only changes attribute (non-text)
   columns in place. To rewrite a full document (including `text` fields) use
   [`replace()`](writing-documents.md).
 - **`id` is special.** Manticore assigns the document id; migrations skip any `id` column,
   except a `uuid` one, which is how a table gets [UUID ids](uuid-document-ids.md).
-- **JOINs are limited.** Cross-index JOINs in Manticore are restricted; prefer denormalized
-  indexes. `join()` from the Query Builder fails, because Manticore rejects the backticks it
-  writes in `ON`, so write the statement by hand with `DB::select()`.
-- **Qualified columns break.** Manticore rejects `` `table`.`column` ``. The driver takes the
-  query's own table out of filters and updated columns, which is what `find()` and relations
-  need. Elsewhere, such as in `orderBy()`, write the column bare.
-- **There is no `NULL` outside JSON.** A column without a value holds `0` or an empty string, so
+- **[Joins](https://manual.manticoresearch.com/Searching/Joining) are `INNER` or `LEFT`, and one per
+  query, without table aliases.** `rightJoin()` and `crossJoin()` throw a `LogicException`, since the
+  server would run a right join as an inner one without an error.
+- **There is no [`NULL` outside JSON](https://manual.manticoresearch.com/Searching/Expressions).** A column without a value holds `0` or an empty string, so
   the driver filters and writes those instead: `whereNull('views')` is `views = 0`, and writing
   `null` stores the empty value. A real `0` therefore also counts as null. `SoftDeletes` works on
   top of this. A `text` field cannot be filtered at all, so `whereNull()` on one fails with an

@@ -30,6 +30,13 @@ weekly CI run:
 MANTICORE_TEST_EMBEDDINGS=1 vendor/bin/pest tests/Integration/AutoEmbeddingsTest.php
 ```
 
+## Saying that Manticore does not do something
+
+Check the [Manticore manual](https://manual.manticoresearch.com) and the Laravel docs first, then try
+it against a real server: a failed syntax does not prove the feature is missing. A limit in the docs
+links to the section of the manual that states it. When the manual says nothing, add the raw SQL to
+`tests/Integration/ServerLimitsTest.php`, so a new release that changes it fails the weekly run.
+
 ## Code style and static analysis
 
 ```bash

@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
 use Illuminate\Support\Facades\DB;
@@ -103,14 +102,16 @@ it('lists the tables', function () {
         ->and($tables['schema_a']['engine'])->toBe('rt');
 });
 
-it('fails loudly on renaming or changing a column, which the server cannot do', function () {
-    manticoreSchema()->create('schema_a', function (Blueprint $table) {
-        $table->integer('n');
-        $table->string('s');
-    });
+it('changes an integer column to bigint, the one change the manual documents', function () {
+    manticoreSchema()->create('schema_a', fn (Blueprint $table) => $table->integer('n'));
 
-    expect(fn () => manticoreSchema()->table('schema_a', fn (Blueprint $table) => $table->renameColumn('n', 'm')))
-        ->toThrow(QueryException::class)
-        ->and(fn () => manticoreSchema()->table('schema_a', fn (Blueprint $table) => $table->text('s')->change()))
-        ->toThrow(RuntimeException::class);
+    manticoreSchema()->table('schema_a', fn (Blueprint $table) => $table->bigInteger('n')->change());
+
+    expect(array_column(manticoreSchema()->getColumns('schema_a'), 'type', 'name')['n'])->toBe('bigint');
 });
+
+it('refuses any other change with a clear error', function () {
+    manticoreSchema()->create('schema_a', fn (Blueprint $table) => $table->string('s'));
+
+    manticoreSchema()->table('schema_a', fn (Blueprint $table) => $table->text('s')->change());
+})->throws(LogicException::class, 'Manticore can only change a column to bigInteger');

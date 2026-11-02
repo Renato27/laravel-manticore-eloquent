@@ -87,6 +87,10 @@ class ManticoreQueryBuilder extends Builder
         if (is_string($column)) {
             [$value, $operator] = $this->prepareValueAndOperator($value, $operator, func_num_args() === 2);
 
+            if ($this->invalidOperator($operator)) {
+                [$value, $operator] = [$operator, '='];
+            }
+
             $value = $this->castToColumn($column, $value);
         }
 
@@ -211,10 +215,11 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Put a value in the type of its column. Manticore does not convert: a filter rejects a
-     * quoted number, UPDATE skips it without an error, a string column drops an unquoted one,
-     * and a timestamp column misreads a quoted value. PDO quotes anything but an int, so a
-     * float is inlined, which is safe since it has been cast to one.
+     * Put a value in the type of its column. Manticore does not convert reliably: a filter takes a
+     * quoted number in some forms and rejects it in others, such as >=, IN, BETWEEN or a float,
+     * UPDATE skips it without an error, a string column drops an unquoted one, and a timestamp column
+     * misreads a quoted value. ServerLimitsTest shows each case. PDO quotes anything but an int, so
+     * a float is inlined, which is safe since it has been cast to one.
      */
     protected function castToColumn(mixed $column, mixed $value): mixed
     {
@@ -256,6 +261,10 @@ class ManticoreQueryBuilder extends Builder
         }
 
         $names = preg_split('/\s+as\s+/i', $this->from);
+
+        if (! empty($this->joins) && preg_match('/^(\w+)\.(\w+)$/', $column, $qualified) && $qualified[1] !== last($names)) {
+            return $this->connection->columnTypes($qualified[1])[$qualified[2]] ?? null;
+        }
 
         return $this->connection->columnTypes($names[0])[Str::after($column, last($names).'.')] ?? null;
     }
@@ -313,8 +322,9 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Insert documents or rewrite the ones that exist, as a REPLACE. Manticore's only unique key
-     * is the id, and REPLACE rewrites the whole document, so it cannot honor anything less.
+     * Insert documents or rewrite the ones that exist, as a REPLACE. It has no ON DUPLICATE KEY, as
+     * ServerLimitsTest shows, and REPLACE rewrites the whole document by id, so it cannot honor
+     * anything less.
      *
      * @param  array|string  $uniqueBy
      * @param  array|null  $update
@@ -345,7 +355,7 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Manticore's UPDATE takes values, not expressions, so this could only be a read and a write,
-     * which would lose increments made in between.
+     * which would lose increments made in between. ServerLimitsTest shows it.
      *
      * @return int
      *
@@ -683,6 +693,10 @@ class ManticoreQueryBuilder extends Builder
      */
     public function cursor()
     {
+        if (! empty($this->joins)) {
+            return parent::cursor()->map(fn ($row) => $this->processor->processSelect($this, [$row])[0]);
+        }
+
         if (! $this->hasKnnByUuid()) {
             return parent::cursor();
         }
@@ -690,6 +704,52 @@ class ManticoreQueryBuilder extends Builder
         $query = clone $this;
 
         return $query->resolveKnnDocumentIds() ? $query->cursor() : LazyCollection::empty();
+    }
+
+    /**
+     * Count the rows. Manticore's COUNT(*) on a LEFT JOIN counts the documents of the left table,
+     * not the joined rows, so those are counted one by one.
+     *
+     * @param  mixed  $columns
+     * @return int
+     */
+    public function count($columns = '*')
+    {
+        return $this->hasLeftJoin() && $columns === '*' ? $this->get()->count() : parent::count($columns);
+    }
+
+    /**
+     * Manticore's outer select takes no aggregate, so a grouped query is counted by its rows, as
+     * is a LEFT JOIN, for the reason in count().
+     *
+     * @see https://manual.manticoresearch.com/Searching/Sub-selects
+     *
+     * @param  array  $columns
+     * @return array
+     */
+    protected function runPaginationCountQuery($columns = ['*'])
+    {
+        if (! $this->groups && ! $this->havings && ! $this->hasLeftJoin()) {
+            return parent::runPaginationCountQuery($columns);
+        }
+
+        $rows = $this->cloneWithout(['orders', 'limit', 'offset'])->cloneWithoutBindings(['order'])->get();
+
+        return [(object) ['aggregate' => $rows->count()]];
+    }
+
+    /**
+     * Whether the query has a LEFT JOIN.
+     */
+    protected function hasLeftJoin(): bool
+    {
+        foreach ((array) $this->joins as $join) {
+            if ($join->type === 'left') {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

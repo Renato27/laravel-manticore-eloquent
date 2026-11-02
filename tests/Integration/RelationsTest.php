@@ -57,6 +57,21 @@ class RelPost extends ManticoreModel
     {
         return $this->hasManyThrough(RelComment::class, RelNote::class, 'post_id', 'commentable_id');
     }
+
+    public function firstNoteComment()
+    {
+        return $this->hasOneThrough(RelComment::class, RelNote::class, 'post_id', 'commentable_id');
+    }
+
+    public function taggedWithPivot()
+    {
+        return $this->belongsToMany(RelTag::class, 'rel_post_tag', 'post_id', 'tag_id')->withPivot('weight');
+    }
+
+    public function morphTags()
+    {
+        return $this->morphToMany(RelTag::class, 'taggable', 'rel_taggables', 'taggable_id', 'tag_id');
+    }
 }
 
 class RelNote extends ManticoreModel
@@ -157,7 +172,7 @@ class RelUuidNote extends ManticoreModel
 
 function relationTables(): array
 {
-    return ['rel_posts', 'rel_notes', 'rel_comments', 'rel_tags', 'rel_post_tag', 'rel_uuid_posts', 'rel_uuid_notes'];
+    return ['rel_posts', 'rel_notes', 'rel_comments', 'rel_tags', 'rel_post_tag', 'rel_taggables', 'rel_uuid_posts', 'rel_uuid_notes'];
 }
 
 beforeEach(function () {
@@ -191,6 +206,12 @@ beforeEach(function () {
     });
     $schema->create('rel_post_tag', function (Blueprint $table) {
         $table->integer('post_id');
+        $table->integer('tag_id');
+        $table->integer('weight');
+    });
+    $schema->create('rel_taggables', function (Blueprint $table) {
+        $table->integer('taggable_id');
+        $table->string('taggable_type');
         $table->integer('tag_id');
     });
     $schema->create('rel_uuid_posts', function (Blueprint $table) {
@@ -301,26 +322,15 @@ it('still loads relational models from a Manticore parent', function () {
     expect(RelPost::find(1)->reviews->modelKeys())->toBe([1]);
 });
 
-it('limit: a relation that needs a join or a subquery fails with an error', function (Closure $query) {
+it('limit: whereHas() and withCount() need a subquery in a place the server does not take one', function (Closure $query) {
     expect($query)->toThrow(QueryException::class);
 })->with([
-    'belongsToMany' => [fn () => RelPost::find(1)->tags],
-    'hasManyThrough' => [fn () => RelPost::find(1)->noteComments],
     'whereHas' => [fn () => RelPost::whereHas('notes')->get()],
     'withCount' => [fn () => RelPost::withCount('notes')->get()],
 ]);
 
 it('limit: match() on a relation collides with the one Eloquent has', function () {
     expect(fn () => RelPost::find(1)->notes()->match('another'))->toThrow(TypeError::class);
-});
-
-it('limit: join() from the query builder fails with an error', function () {
-    expect(fn () => DB::connection('manticore')->table('rel_notes')->join('rel_posts', 'rel_notes.post_id', '=', 'rel_posts.id')->get())
-        ->toThrow(QueryException::class);
-});
-
-it('limit: a qualified column in orderBy() fails with an error', function () {
-    expect(fn () => RelNote::query()->orderBy('rel_notes.id')->get())->toThrow(QueryException::class);
 });
 
 it('runs a join written by hand without backticks', function () {
@@ -347,4 +357,106 @@ it('keeps a whereNotNull() written by hand on a json column', function () {
     } finally {
         $schema->dropIfExists('rel_json');
     }
+});
+
+function seedTags(): void
+{
+    foreach ([1 => 'php', 2 => 'search', 3 => 'unused'] as $id => $name) {
+        RelTag::create(['id' => $id, 'name' => $name]);
+    }
+
+    DB::connection('manticore')->table('rel_post_tag')->insert([
+        ['post_id' => 1, 'tag_id' => 1, 'weight' => 5],
+        ['post_id' => 1, 'tag_id' => 2, 'weight' => 9],
+        ['post_id' => 2, 'tag_id' => 2, 'weight' => 1],
+    ]);
+}
+
+it('loads belongsToMany on demand and eagerly', function () {
+    seedTags();
+
+    $tags = RelPost::find(1)->tags->sortBy('id')->values();
+
+    expect($tags->modelKeys())->toBe([1, 2])
+        ->and($tags->first())->toBeInstanceOf(RelTag::class)
+        ->and($tags->first()->name)->toBe('php')
+        ->and((int) $tags->first()->pivot->post_id)->toBe(1)
+        ->and((int) $tags->first()->pivot->tag_id)->toBe(1);
+
+    $posts = RelPost::with('tags')->orderBy('id')->get();
+
+    expect($posts[0]->tags->modelKeys())->toEqualCanonicalizing([1, 2])
+        ->and($posts[1]->tags->modelKeys())->toBe([2]);
+});
+
+it('keeps the pivot table out of a related model', function () {
+    seedTags();
+
+    $tag = RelPost::find(1)->tags->sortBy('id')->first();
+
+    expect(array_keys($tag->getAttributes()))->toEqualCanonicalizing(['id', 'name'])
+        ->and(array_keys($tag->toArray()))->toEqualCanonicalizing(['id', 'name', 'pivot']);
+});
+
+it('filters, orders, counts and pages belongsToMany', function () {
+    seedTags();
+
+    $relation = fn () => RelPost::find(1)->taggedWithPivot();
+
+    expect($relation()->orderBy('rel_tags.id', 'desc')->pluck('rel_tags.id')->all())->toBe([2, 1])
+        ->and((int) $relation()->orderByPivot('weight', 'desc')->first()->pivot->weight)->toBe(9)
+        ->and($relation()->wherePivot('weight', '>', 6)->get()->modelKeys())->toBe([2])
+        ->and($relation()->wherePivot('weight', '9')->get()->modelKeys())->toBe([2])
+        ->and($relation()->wherePivotIn('tag_id', [1])->get()->modelKeys())->toBe([1])
+        ->and($relation()->count())->toBe(2)
+        ->and($relation()->exists())->toBeTrue()
+        ->and($relation()->where('rel_tags.id', 2)->first()->id)->toBe(2)
+        ->and($relation()->paginate(1)->total())->toBe(2)
+        ->and(iterator_count($relation()->cursor()))->toBe(2)
+        ->and($relation()->cursor()->first()->pivot->post_id)->not->toBeNull();
+});
+
+it('writes through belongsToMany', function () {
+    seedTags();
+
+    $post = RelPost::find(2);
+
+    $post->tags()->attach(1, ['weight' => 3]);
+    expect($post->tags()->pluck('rel_tags.id')->sort()->values()->all())->toBe([1, 2]);
+
+    $post->tags()->detach(2);
+    expect($post->tags()->pluck('rel_tags.id')->all())->toBe([1]);
+
+    $post->tags()->sync([2, 3]);
+    expect($post->tags()->pluck('rel_tags.id')->sort()->values()->all())->toBe([2, 3]);
+
+    $post->tags()->updateExistingPivot(2, ['weight' => 8]);
+    expect((int) $post->taggedWithPivot()->where('rel_tags.id', 2)->first()->pivot->weight)->toBe(8);
+
+    $post->tags()->detach();
+    expect($post->tags()->count())->toBe(0);
+});
+
+it('loads morphToMany', function () {
+    RelTag::create(['id' => 1, 'name' => 'php']);
+    RelPost::find(1)->morphTags()->attach(1);
+
+    expect(RelPost::find(1)->morphTags->modelKeys())->toBe([1])
+        ->and(RelPost::find(2)->morphTags)->toHaveCount(0);
+});
+
+it('loads hasManyThrough and hasOneThrough', function () {
+    RelComment::create(['id' => 100, 'body' => 'on a note', 'commentable_type' => 'x', 'commentable_id' => 10]);
+    RelComment::create(['id' => 101, 'body' => 'on another', 'commentable_type' => 'x', 'commentable_id' => 11]);
+    RelComment::create(['id' => 102, 'body' => 'elsewhere', 'commentable_type' => 'x', 'commentable_id' => 12]);
+
+    $comments = RelPost::find(1)->noteComments;
+
+    expect($comments->modelKeys())->toEqualCanonicalizing([100, 101])
+        ->and($comments->first())->toBeInstanceOf(RelComment::class)
+        ->and(array_keys($comments->first()->getAttributes()))->toEqualCanonicalizing(['id', 'body', 'commentable_type', 'commentable_id', 'laravel_through_key']);
+
+    expect(RelPost::with('noteComments')->find(2)->noteComments->modelKeys())->toBe([102])
+        ->and(RelPost::find(2)->firstNoteComment->id)->toBe(102)
+        ->and(RelPost::find(1)->noteComments()->count())->toBe(2);
 });

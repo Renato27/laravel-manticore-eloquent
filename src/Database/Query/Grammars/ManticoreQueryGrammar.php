@@ -7,6 +7,7 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
+use LogicException;
 use ManticoreEloquent\Database\Query\DocumentId;
 use ManticoreEloquent\Database\Query\ManticoreQueryBuilder;
 
@@ -196,8 +197,8 @@ class ManticoreQueryGrammar extends MySqlGrammar
     }
 
     /**
-     * What a row-returning select needs on Manticore: a limit that reaches every row, and a GROUP
-     * BY in place of the DISTINCT it does not have.
+     * What a row-returning select needs on Manticore: a limit that reaches every row, columns it
+     * can read, and a GROUP BY in place of the DISTINCT it does not have.
      */
     protected function withManticoreDefaults(ManticoreQueryBuilder $query): ManticoreQueryBuilder
     {
@@ -207,12 +208,115 @@ class ManticoreQueryGrammar extends MySqlGrammar
             $query->limit(self::UNLIMITED);
         }
 
+        if (is_string($query->from)) {
+            $own = last(preg_split('/\s+as\s+/i', $query->from)).'.';
+
+            $query->columns = $query->columns === null ? null : array_map(fn ($column) => $this->selectableColumn($column, $own), $query->columns);
+            $query->groups = $query->groups === null ? null : array_map(fn ($column) => $this->selectableColumn($column, $own), $query->groups);
+            $query->orders = $query->orders === null ? null : array_map(function ($order) use ($own) {
+                if (isset($order['column'])) {
+                    $order['column'] = $this->selectableColumn($order['column'], $own);
+                }
+
+                return $order;
+            }, $query->orders);
+        }
+
         if ($query->distinct === true && ! in_array($query->columns, [null, ['*']], true)) {
             $query->distinct = false;
             $query->groups = array_merge($query->groups ?? [], $query->columns);
         }
 
         return $query;
+    }
+
+    /**
+     * A column as Manticore can read it. It takes a text field of the query's own table only
+     * without the table's name, has no table.* other than a plain *, and returns no rows at all for
+     * an alias that repeats the column in a join.
+     */
+    protected function selectableColumn(mixed $column, string $own): mixed
+    {
+        if (! is_string($column)) {
+            return $column;
+        }
+
+        $column = preg_replace('/^(\w+\.(\w+))\s+as\s+\2$/i', '$1', $column);
+
+        if ($column === $own.'*') {
+            return '*';
+        }
+
+        return str_starts_with($column, $own) ? substr($column, strlen($own)) : $column;
+    }
+
+    /**
+     * Manticore rejects `table`.`column`, so a qualified name goes out bare, and can therefore only
+     * hold plain names.
+     *
+     * @param  array  $segments
+     * @return string
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function wrapSegments($segments)
+    {
+        if (count($segments) === 1) {
+            return parent::wrapSegments($segments);
+        }
+
+        foreach ($segments as $segment) {
+            if (! preg_match('/^(\w+|\*)$/', $segment)) {
+                throw new InvalidArgumentException('Invalid column ['.implode('.', $segments).'].');
+            }
+        }
+
+        $segments[0] = trim($this->wrapTable($segments[0]), '`');
+
+        return implode('.', $segments);
+    }
+
+    /**
+     * Manticore only has INNER and LEFT JOIN. It reads any other word there as an alias and runs an
+     * inner join, so a right join would give the wrong rows without an error.
+     *
+     * @see https://manual.manticoresearch.com/Searching/Joining
+     *
+     * @param  array  $joins
+     * @return string
+     *
+     * @throws LogicException
+     */
+    protected function compileJoins(Builder $query, $joins)
+    {
+        foreach ($joins as $join) {
+            if (! in_array($join->type, ['inner', 'left'], true)) {
+                throw new LogicException("Manticore only has inner and left joins, so it cannot run a {$join->type} join.");
+            }
+        }
+
+        return parent::compileJoins($query, $joins);
+    }
+
+    /**
+     * Manticore's sub-select takes no alias, which fromSub() always gives it.
+     *
+     * @param  mixed  $table
+     * @return string
+     */
+    protected function compileFrom(Builder $query, $table)
+    {
+        $from = parent::compileFrom($query, $table);
+
+        return $this->isSubSelect($query) ? preg_replace('/\)\s+as\s+`?\w+`?$/i', ')', $from) : $from;
+    }
+
+    /**
+     * Whether a query selects from a sub-select.
+     */
+    protected function isSubSelect(Builder $query): bool
+    {
+        return $this->isExpression($query->from) && str_starts_with(strtolower((string) $this->getValue($query->from)), '(select');
     }
 
     /**
@@ -306,6 +410,8 @@ class ManticoreQueryGrammar extends MySqlGrammar
     /**
      * Manticore has no NULL outside JSON: a column without a value holds its type's empty value.
      *
+     * @see https://manual.manticoresearch.com/Searching/Expressions
+     *
      * @param  array  $where
      * @return string
      */
@@ -363,14 +469,15 @@ class ManticoreQueryGrammar extends MySqlGrammar
 
     /**
      * Build the trailing OPTION clause. Manticore caps results at max_matches (1000 by
-     * default), so a query that reaches past that raises the cap unless it was set by hand.
+     * default), so a query that reaches past that raises the cap unless it was set by hand. The
+     * outer select of a sub-select takes no OPTION.
      */
     protected function compileOptionClause(ManticoreQueryBuilder $query): string
     {
         $options = $query->options;
         unset($options['__facets']);
 
-        if (! array_key_exists('max_matches', $options)) {
+        if (! array_key_exists('max_matches', $options) && ! $this->isSubSelect($query)) {
             $needed = (int) ($query->offset ?? 0) + (int) ($query->limit ?? 0);
 
             if ($needed > 1000) {

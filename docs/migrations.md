@@ -63,8 +63,13 @@ To use UUIDs as document ids, declare the id with `$table->uuid('id')`. See
 
 A `timestamp` column holds a Unix integer. See [Known limits](known-limits.md) for what that
 means when you write one. A type with no equivalent, such as `binary`, throws a `LogicException`
-naming the column. `Schema::rename()` works, while `renameColumn()` and `change()` fail, because
-Manticore can only add and drop columns.
+naming the column. Manticore's [`float` is 32-bit](https://manual.manticoresearch.com/Creating_a_table/Data_types),
+so `double` and `decimal` lose precision. For exact values the manual recommends scaled integers in a
+`bigint`.
+
+[`ALTER`](https://manual.manticoresearch.com/Updating_table_schema_and_settings) adds and drops columns,
+renames tables with `Schema::rename()`, and widens `integer` to `bigInteger` with `change()`. Any other
+`change()` throws a `LogicException`, and `renameColumn()` fails with the server's error.
 
 Text columns accept `->indexed()`/`->stored()`, and tables accept `minInfixLen()`,
 `morphology()` and the generic `manticoreOptions([...])`.
