@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Database\QueryException;
 use ManticoreEloquent\Database\ManticoreConnection;
@@ -886,4 +887,137 @@ it('keeps a distinct count', function () {
     $query = new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor);
 
     expect($query->from('docs')->distinct()->count('views'))->toBe(2);
+});
+
+function queryOn(ManticoreConnection $connection, string $table = 'docs'): ManticoreQueryBuilder
+{
+    return (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from($table);
+}
+
+it('reads a lone value that looks like an operator as the value', function () {
+    $q = typedQuery()->where('slug', '>');
+
+    expect($q->toSql())->toBe(unlimited('select * from `docs` where `slug` = ?'))
+        ->and($q->getBindings())->toBe(['>']);
+});
+
+it('leaves what is not a plain value alone, whatever the column', function () {
+    expect(typedQuery()->where('slug', new Expression("'x'"))->toSql())->toContain("`slug` = 'x'")
+        ->and(typedQuery()->where('slug', null)->toSql())->toContain("`slug` = ''")
+        ->and(typedQuery()->where('slug', null)->getBindings())->toBe([])
+        ->and(typedQuery()->where('slug', '=', fn ($sub) => $sub->select('a')->from('b')->limit(1))->toSql())->toContain('`slug` = (select')
+        ->and(typedQuery()->where('on', true)->getBindings())->toBe([true]);
+});
+
+it('does not read the type of a column of the same name in another table', function () {
+    expect(typedQuery()->where('other.views', '10')->getBindings())->toBe(['10']);
+});
+
+it('explains what to use when upsert() cannot run', function () {
+    expect(fn () => typedQuery()->upsert(['id' => 1, 'views' => 2, 'slug' => 'a'], 'id', ['views']))
+        ->toThrow(LogicException::class, 'Manticore can only run upsert() as a REPLACE, keyed by id and writing every column. To change some columns, use update(), or replaceWhereId() for one document.');
+});
+
+it('keeps the paging defaults of Laravel in forPageAfterId and forPageBeforeId', function () {
+    $after = manticoreQuery('docs')->forPageAfterId();
+    $before = manticoreQuery('docs')->forPageBeforeId();
+
+    expect($after->toSql())->toBe('select * from `docs` where `id` > ? order by `id` asc limit 15')
+        ->and($after->getBindings())->toBe([0])
+        ->and($before->toSql())->toBe('select * from `docs` where `id` < ? order by `id` desc limit 15')
+        ->and($before->getBindings())->toBe([0]);
+});
+
+it('lines up the columns of rows given in a different order to replace()', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('insert')->once()
+        ->with('replace into `docs` (`id`, `v`) values (?, ?), (?, ?)', [1, 2, 3, 4])->andReturn(true);
+
+    expect(queryOn($connection)->replace([['v' => 2, 'id' => 1], ['id' => 3, 'v' => 4]]))->toBeTrue();
+});
+
+it('runs before-query callbacks on replace() and replaceWhereId()', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('insert')->twice()->andReturn(true);
+
+    $ran = 0;
+
+    queryOn($connection)->beforeQuery(function () use (&$ran) {
+        $ran++;
+    })->replace(['id' => 1, 'v' => 2]);
+
+    queryOn($connection)->beforeQuery(function () use (&$ran) {
+        $ran++;
+    })->replaceWhereId(1, ['v' => 2]);
+
+    expect($ran)->toBe(2);
+});
+
+function listQuery(): ManticoreQueryBuilder
+{
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(['tags' => 'mva', 'big' => 'mva64', 'vec' => 'float_vector', 'name' => 'string']);
+    $connection->shouldReceive('update')->andReturnUsing(fn (string $sql) => $sql);
+
+    return queryOn($connection);
+}
+
+it('writes a list as a tuple of numbers, so nothing else reaches the SQL', function (string $column, mixed $value, string $tuple) {
+    expect(listQuery()->where('id', 1)->update([$column => $value]))
+        ->toBe("update `docs` set `{$column}` = {$tuple} where `id` = ?");
+})->with([
+    'a list' => ['tags', [1, '2'], '(1, 2)'],
+    'what it reads back as' => ['tags', '3,4', '(3, 4)'],
+    'an empty value' => ['tags', '', '()'],
+    'an empty list' => ['big', [], '()'],
+    'an injection in a list' => ['tags', ['1) or (1=1', 2], '(1, 2)'],
+    'an injection in a string' => ['big', '5) or (1=1,6', '(5, 6)'],
+    'a vector' => ['vec', [1, '2.5'], '(1.0, 2.5)'],
+    'a vector as it reads back' => ['vec', '0.5,1', '(0.5, 1.0)'],
+]);
+
+it('leaves a list on any other column alone', function () {
+    expect(listQuery()->where('id', 1)->update(['name' => [1, 2]]))->toBe('update `docs` set `name` = ? where `id` = ?');
+});
+
+it('wraps a table list with spaces', function () {
+    expect(manticoreQuery('a, b')->limit(1)->toSql())->toBe('select * from `a`, `b` limit 1');
+});
+
+it('escapes quotes in highlight fields and options', function () {
+    expect(manticoreQuery('docs')->getGrammar()->compileHighlight("a'b"))->toBe("HIGHLIGHT({}, 'a\\'b')")
+        ->and(manticoreQuery('docs')->getGrammar()->compileHighlight(null, ['before_match' => "it's"]))->toBe("HIGHLIGHT({before_match='it\\'s'})");
+});
+
+it('names the column it refuses', function () {
+    expect(fn () => manticoreQuery('docs')->where('a b.c', 1)->toSql())->toThrow(InvalidArgumentException::class, 'Invalid column [a b.c].');
+});
+
+it('recognises a sub-select written by hand in capitals', function () {
+    expect(manticoreQuery('docs')->fromRaw('(SELECT id FROM x LIMIT 1)')->orderBy('id')->toSql())
+        ->toBe('select * from (SELECT id FROM x LIMIT 1) order by `id` asc limit 2147483646');
+});
+
+it('only raises max_matches past the 1000 the server allows by default', function () {
+    expect(manticoreQuery('docs')->limit(1000)->toSql())->toBe('select * from `docs` limit 1000')
+        ->and(manticoreQuery('docs')->limit(1001)->toSql())->toBe('select * from `docs` limit 1001 OPTION max_matches=1001')
+        ->and(manticoreQuery('docs')->limit(1)->offset(999)->toSql())->toBe('select * from `docs` limit 1 offset 999')
+        ->and(manticoreQuery('docs')->limit(1)->offset(1000)->toSql())->toBe('select * from `docs` limit 1 offset 1000 OPTION max_matches=1001');
+});
+
+it('renders option values', function () {
+    expect(manticoreQuery('docs')->limit(1)->option('a', 5)->option('b', new Expression('raw'))->option('c', ['x' => 1])->option('d', 'word')->toSql())
+        ->toBe('select * from `docs` limit 1 OPTION a=5, b=raw, c=(x=1), d=word');
+});
+
+it('leaves a plain Laravel builder using this grammar as Laravel writes it', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+
+    $query = (new Builder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs');
+
+    expect($query->whereNull('a')->toSql())->toBe('select * from `docs` where `a` is null');
 });

@@ -30,3 +30,10 @@ it('builds a DSN without a port', function () {
 it('defaults the host to 127.0.0.1', function () {
     expect(manticoreConnector()->dsn([]))->toBe('mysql:host=127.0.0.1');
 });
+
+it('emulates prepares, on top of the options of Laravel', function () {
+    $options = manticoreConnector()->getOptions(['options' => [PDO::ATTR_TIMEOUT => 3]]);
+
+    expect($options[PDO::ATTR_EMULATE_PREPARES])->toBeTrue()
+        ->and($options[PDO::ATTR_TIMEOUT])->toBe(3);
+});

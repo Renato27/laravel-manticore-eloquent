@@ -905,3 +905,29 @@ it('reads the vector again each time knn() by uuid runs, so it sees a change', f
         expect($reads)->toHaveCount(2);
     });
 });
+
+it('partially replaces a uuid document through a table prefix', function () {
+    withUuidTable(function () {
+        config(['database.connections.manticore_prefixed' => ['prefix' => 'it_uuid_'] + config('database.connections.manticore')]);
+
+        $uuid = '550e8400-e29b-41d4-a716-446655440000';
+        $table = fn () => DB::connection('manticore_prefixed')->table('articles_rt');
+
+        $table()->insert(['id' => $uuid, 'title' => 'old']);
+        $table()->replaceWhereId($uuid, ['title' => 'new']);
+
+        expect($table()->where('id', $uuid)->value('title'))->toBe('new');
+    });
+});
+
+it('keeps empty values through the partial replace of a uuid document', function () {
+    withUuidTable(function () {
+        $uuid = '550e8400-e29b-41d4-a716-446655440000';
+        $table = fn () => DB::connection('manticore')->table('it_uuid_articles_rt');
+
+        $table()->insert(['id' => $uuid, 'title' => 'old']);
+        $table()->replaceWhereId($uuid, ['title' => 'new']);
+
+        expect($table()->where('id', $uuid)->first()->title)->toBe('new');
+    });
+});

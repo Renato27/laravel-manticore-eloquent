@@ -90,3 +90,13 @@ it('replicates a document', function () {
 
     expect(MvaDocument::find(2)->tag_ids)->toBe([1, 2]);
 });
+
+it('replicates a document with an empty list', function () {
+    MvaDocument::create(['id' => 1, 'title' => 'a', 'tag_ids' => []]);
+
+    $copy = MvaDocument::find(1)->replicate();
+    $copy->id = 2;
+    $copy->save();
+
+    expect(MvaDocument::find(2)->tag_ids)->toBe([]);
+});

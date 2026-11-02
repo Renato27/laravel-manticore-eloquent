@@ -16,11 +16,9 @@ class ManticoreSchemaBuilder extends Builder
     {
         $table = $this->connection->getTablePrefix().$table;
 
-        foreach ($this->connection->select('SHOW TABLES') as $row) {
-            foreach ((array) $row as $value) {
-                if (strcasecmp((string) $value, $table) === 0) {
-                    return true;
-                }
+        foreach ($this->getTables() as $existing) {
+            if (strcasecmp($existing['name'], $table) === 0) {
+                return true;
             }
         }
 
@@ -108,29 +106,17 @@ class ManticoreSchemaBuilder extends Builder
     {
         $table = $this->connection->getTablePrefix().$table;
 
-        $columns = [];
-
-        foreach ($this->connection->select('DESC '.$table) as $row) {
-            $row = (array) $row;
-
-            $name = (string) ($row['Field'] ?? reset($row));
-            $type = strtolower((string) ($row['Type'] ?? ''));
-            $properties = trim((string) ($row['Properties'] ?? ''));
-
-            $columns[] = [
-                'name' => $name,
-                'type_name' => $type,
-                'type' => $type,
-                'collation' => null,
-                'nullable' => false,
-                'default' => null,
-                'auto_increment' => strtolower($name) === 'id',
-                'comment' => $properties !== '' ? $properties : null,
-                'generation' => null,
-            ];
-        }
-
-        return $columns;
+        return array_map(static fn ($row) => [
+            'name' => $row->Field,
+            'type_name' => $row->Type,
+            'type' => $row->Type,
+            'collation' => null,
+            'nullable' => false,
+            'default' => null,
+            'auto_increment' => $row->Field === 'id',
+            'comment' => $row->Properties !== '' ? $row->Properties : null,
+            'generation' => null,
+        ], $this->connection->select('DESC '.$table));
     }
 
     /**
@@ -154,20 +140,14 @@ class ManticoreSchemaBuilder extends Builder
         ]];
 
         foreach ($this->connection->select('DESC '.$table) as $row) {
-            $row = (array) $row;
-
-            $name = (string) ($row['Field'] ?? reset($row));
-            $type = strtolower((string) ($row['Type'] ?? ''));
-            $properties = strtolower((string) ($row['Properties'] ?? ''));
-
-            if ($type === 'text' && str_contains($properties, 'indexed')) {
-                $fullText[] = $name;
+            if ($row->Type === 'text' && str_contains($row->Properties, 'indexed')) {
+                $fullText[] = $row->Field;
             }
 
-            if ($type === 'float_vector' && str_contains($properties, 'knn')) {
+            if ($row->Type === 'float_vector' && str_contains($row->Properties, 'knn')) {
                 $indexes[] = [
-                    'name' => $name.'_knn',
-                    'columns' => [$name],
+                    'name' => $row->Field.'_knn',
+                    'columns' => [$row->Field],
                     'type' => 'knn',
                     'unique' => false,
                     'primary' => false,
@@ -193,11 +173,8 @@ class ManticoreSchemaBuilder extends Builder
      */
     public function dropAllTables(): void
     {
-        foreach ($this->connection->select('SHOW TABLES') as $row) {
-            $row = (array) $row;
-            $name = $row['Index'] ?? $row['Table'] ?? (string) reset($row);
-
-            $this->connection->statement('DROP TABLE IF EXISTS '.$name);
+        foreach ($this->getTables() as $table) {
+            $this->connection->statement('DROP TABLE IF EXISTS '.$table['name']);
         }
     }
 }

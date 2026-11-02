@@ -198,7 +198,7 @@ class ManticoreQueryBuilder extends Builder
             return $this->insert(array_merge($attributes, $values));
         }
 
-        return empty($values) || (bool) $this->update($values);
+        return empty($values) || $this->update($values);
     }
 
     /**
@@ -262,7 +262,7 @@ class ManticoreQueryBuilder extends Builder
 
         $names = preg_split('/\s+as\s+/i', $this->from);
 
-        if (! empty($this->joins) && preg_match('/^(\w+)\.(\w+)$/', $column, $qualified) && $qualified[1] !== last($names)) {
+        if (! empty($this->joins) && preg_match('/^(\w+)\.(\w+)$/', $column, $qualified)) {
             return $this->connection->columnTypes($qualified[1])[$qualified[2]] ?? null;
         }
 
@@ -533,7 +533,7 @@ class ManticoreQueryBuilder extends Builder
 
         $values = $this->castRow($values);
 
-        $bindings = $this->cleanBindings(array_values($values));
+        $bindings = $this->cleanBindings($values);
         $bindings[] = $id;
 
         try {
@@ -577,12 +577,6 @@ class ManticoreQueryBuilder extends Builder
             unset($document[$column]);
         }
 
-        foreach ($document as $column => $value) {
-            if ($value === null || $value === '') {
-                unset($document[$column]);
-            }
-        }
-
         return $this->newQuery()->from($this->from)->replace(array_merge($document, $values, ['id' => $id]));
     }
 
@@ -598,7 +592,7 @@ class ManticoreQueryBuilder extends Builder
 
         preg_match_all(
             '/^\s*`?(\w+)`?\s+float_vector\b.*\bmodel_name\s*=/im',
-            (string) ($definition['Create Table'] ?? ''),
+            $definition['Create Table'] ?? '',
             $matches
         );
 
@@ -733,7 +727,7 @@ class ManticoreQueryBuilder extends Builder
             return parent::runPaginationCountQuery($columns);
         }
 
-        $rows = $this->cloneWithout(['orders', 'limit', 'offset'])->cloneWithoutBindings(['order'])->get();
+        $rows = $this->cloneWithout(['limit', 'offset'])->get();
 
         return [(object) ['aggregate' => $rows->count()]];
     }

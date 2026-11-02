@@ -243,10 +243,6 @@ class ManticoreQueryGrammar extends MySqlGrammar
 
         $column = preg_replace('/^(\w+\.(\w+))\s+as\s+\2$/i', '$1', $column);
 
-        if ($column === $own.'*') {
-            return '*';
-        }
-
         return str_starts_with($column, $own) ? substr($column, strlen($own)) : $column;
     }
 

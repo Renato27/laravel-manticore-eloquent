@@ -264,3 +264,33 @@ it('limit: SQL the server does not have fails with its error', function (Closure
     'whereTime' => [fn ($q) => $q->whereTime('views', '=', '10:00:00')],
     'whereJsonContainsKey' => [fn ($q) => $q->whereJsonContainsKey('slug->a')],
 ]);
+
+it('takes a closure in updateOrInsert(), telling it whether the row exists', function () {
+    featureTable()->updateOrInsert(['id' => 1], fn (bool $exists) => ['views' => $exists ? 70 : 71]);
+    featureTable()->updateOrInsert(['id' => 8], fn (bool $exists) => ['title' => 'n', 'views' => $exists ? 80 : 81, 'slug' => 's']);
+
+    expect(FeaturePost::find(1)->views)->toBe(70)
+        ->and(FeaturePost::find(8)->views)->toBe(81);
+});
+
+it('limit: distinct() of every column fails with the error of the server', function () {
+    featureTable()->distinct()->get();
+})->throws(QueryException::class);
+
+it('counts a plain page with count(*), without reading the rows', function () {
+    $connection = DB::connection('manticore');
+    $connection->flushQueryLog();
+    $connection->enableQueryLog();
+
+    featureTable()->paginate(1);
+
+    $counts = array_filter($connection->getQueryLog(), fn (array $q) => str_starts_with($q['query'], 'select count(*)'));
+
+    expect($counts)->toHaveCount(1);
+});
+
+it('counts a grouped page past a limit and an offset of its own', function () {
+    $page = featureTable()->selectRaw('slug, count(*) as c')->groupBy('slug')->orderBy('slug')->limit(1)->offset(1)->paginate(5);
+
+    expect($page->total())->toBe(2);
+});

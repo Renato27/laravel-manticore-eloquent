@@ -4,7 +4,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\ServiceProvider;
 use ManticoreEloquent\Concerns\HasManticore;
+use ManticoreEloquent\Database\ManticoreConnection;
+use ManticoreEloquent\Database\ManticoreConnector;
 use ManticoreEloquent\Database\Schema\ManticoreSchemaGrammar;
 use ManticoreEloquent\Eloquent\ManticoreModel;
 use ManticoreEloquent\ManticoreEloquentServiceProvider;
@@ -209,4 +212,81 @@ it('keeps the date format of a ManticoreModel moved to another kind of connectio
     $model = (new DefaultArticle)->setConnection('other');
 
     expect($model->fromDateTime('2026-01-02 03:04:05'))->toBe('2026-01-02 03:04:05');
+});
+
+it('reads a date without a value as null only on Manticore', function () {
+    $onManticore = new DefaultArticle;
+    $onManticore->mergeCasts(['seen_at' => 'datetime']);
+
+    expect($onManticore->newFromBuilder(['seen_at' => 0])->seen_at)->toBeNull()
+        ->and($onManticore->newFromBuilder(['seen_at' => '0'])->seen_at)->toBeNull()
+        ->and($onManticore->newFromBuilder(['views' => 0])->views)->toBe(0);
+
+    config(['database.connections.relational' => ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '']]);
+
+    $elsewhere = (new DefaultArticle)->setConnection('relational');
+    $elsewhere->mergeCasts(['seen_at' => 'datetime']);
+
+    expect($elsewhere->newFromBuilder(['seen_at' => 0])->seen_at->year)->toBe(1970);
+});
+
+it('registers the connection, the driver and the published config', function () {
+    expect(config('manticore-eloquent.connection'))->toBe('manticore')
+        ->and(config('database.connections.manticore'))->toMatchArray(['driver' => 'manticore', 'host' => '127.0.0.1', 'database' => null, 'prefix' => '', 'engine' => null])
+        ->and(array_keys(config('database.connections.manticore')))->toContain('username', 'password', 'port')
+        ->and(DB::connection('manticore'))->toBeInstanceOf(ManticoreConnection::class)
+        ->and(app('db.connector.manticore'))->toBeInstanceOf(ManticoreConnector::class);
+
+    $paths = ServiceProvider::pathsToPublish(ManticoreEloquentServiceProvider::class, 'config');
+
+    expect(array_values($paths))->toBe([config_path('manticore-eloquent.php')])
+        ->and(array_keys($paths)[0])->toEndWith('/config/manticore-eloquent.php');
+});
+
+it('does not send anything but a single table to DESC', function () {
+    $connection = DB::connection('manticore');
+
+    $log = $connection->pretend(function () use ($connection) {
+        expect($connection->columnTypes('a,b'))->toBe([])
+            ->and($connection->columnTypes('a; drop table b'))->toBe([]);
+    });
+
+    expect($log)->toBe([]);
+});
+
+it('writes the whole statement with table options, escaping them', function () {
+    $connection = DB::connection('manticore');
+
+    $build = function (Closure $define) use (&$connection) {
+        $grammar = $connection->getSchemaGrammar() ?? $connection->useDefaultSchemaGrammar() ?? $connection->getSchemaGrammar();
+        $constructor = (new ReflectionClass(Blueprint::class))->getConstructor();
+
+        $blueprint = $constructor->getParameters()[0]->getName() === 'connection'
+            ? new Blueprint($connection, 'docs')
+            : new Blueprint('docs');
+
+        $blueprint->create();
+        $define($blueprint);
+
+        return $constructor->getParameters()[0]->getName() === 'connection'
+            ? $blueprint->toSql()
+            : $blueprint->toSql($connection, $grammar);
+    };
+
+    expect($build(function ($table) {
+        $table->string('a');
+        $table->manticoreOptions(['morphology' => "it's", 'min_infix_len' => 2]);
+    }))->toBe(["create table `docs` (`a` string) morphology='it\\'s' min_infix_len='2'"]);
+
+    expect($build(function ($table) {
+        $table->engine = 'columnar';
+        $table->string('a');
+        $table->morphology('stem_en');
+    }))->toBe(["create table `docs` (`a` string) engine='columnar' morphology='stem_en'"]);
+
+    config(['database.connections.manticore.engine' => 'rowwise']);
+    DB::purge('manticore');
+    $connection = DB::connection('manticore');
+
+    expect($build(fn ($table) => $table->string('a')))->toBe(["create table `docs` (`a` string) engine='rowwise'"]);
 });

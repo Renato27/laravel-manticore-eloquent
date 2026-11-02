@@ -26,7 +26,7 @@ class ManticoreSchemaGrammar extends Grammar
     public function compileCreate(Blueprint $blueprint, Fluent $command, $connection = null): string
     {
         // A table needs a column to be declared, and the id is the one that is always there.
-        $columns = implode(', ', $this->getManticoreColumns($blueprint) ?: ['`id` bigint']);
+        $columns = implode(', ', $this->getManticoreColumns($blueprint->getAddedColumns()) ?: ['`id` bigint']);
 
         $sql = sprintf('create table %s (%s)', $this->wrapTable($blueprint), $columns);
 
@@ -82,11 +82,9 @@ class ManticoreSchemaGrammar extends Grammar
         $table = $this->wrapTable($blueprint);
 
         // Laravel 10 runs one command for all the added columns, and later versions one for each.
-        $columns = isset($command->column)
-            ? [$this->wrap($command->column).' '.$this->getType($command->column)]
-            : $this->getManticoreColumns($blueprint);
+        $columns = isset($command->column) ? [$command->column] : $blueprint->getAddedColumns();
 
-        return array_map(fn (string $column) => "alter table {$table} add column {$column}", $columns);
+        return array_map(fn (string $column) => "alter table {$table} add column {$column}", $this->getManticoreColumns($columns));
     }
 
     /**
@@ -200,19 +198,19 @@ class ManticoreSchemaGrammar extends Grammar
      *
      * @return array<int, string>
      */
-    protected function getManticoreColumns(Blueprint $blueprint): array
+    protected function getManticoreColumns(array $columns): array
     {
-        $columns = [];
+        $definitions = [];
 
-        foreach ($blueprint->getAddedColumns() as $column) {
-            if (strtolower((string) $column->name) === 'id' && $column->type !== 'uuid') {
+        foreach ($columns as $column) {
+            if (strtolower($column->name) === 'id' && $column->type !== 'uuid') {
                 continue;
             }
 
-            $columns[] = $this->wrap($column).' '.$this->getType($column);
+            $definitions[] = $this->wrap($column).' '.$this->getType($column);
         }
 
-        return $columns;
+        return $definitions;
     }
 
     /**

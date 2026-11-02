@@ -41,3 +41,15 @@ it('leaves a query without a join alone', function () {
 
     expect((new ManticoreProcessor)->processSelect($query, [$row])[0])->toBe($row);
 });
+
+it('takes a join with no columns set', function () {
+    expect(processJoinedRows([], ['id' => 1, 'b.x' => 3]))->toBe(['id' => 1, 'x' => 3]);
+
+    $connection = Mockery::mock(ManticoreConnection::class);
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+
+    $query = (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))
+        ->from('a')->join('b', 'a.id', '=', 'b.x');
+
+    expect((array) (new ManticoreProcessor)->processSelect($query, [(object) ['b.x' => 3]])[0])->toBe(['x' => 3]);
+});

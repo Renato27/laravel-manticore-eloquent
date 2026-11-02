@@ -239,3 +239,33 @@ it('wraps identifiers in backticks but leaves * alone', function () {
     expect($grammar->wrap('title'))->toBe('`title`');
     expect($grammar->wrap('*'))->toBe('*');
 });
+
+it('writes the whole statement when a blueprint sets an engine', function () {
+    $sql = manticoreSchemaSql('docs', function (Blueprint $table) {
+        $table->create();
+        $table->engine = 'columnar';
+        $table->string('a');
+    });
+
+    expect($sql)->toBe(["create table `docs` (`a` string) engine='columnar'"]);
+});
+
+it('escapes identifiers', function () {
+    expect(manticoreSchemaSql('docs', function (Blueprint $table) {
+        $table->create();
+        $table->string('a`b');
+    }))->toBe(['create table `docs` (`a``b` string)']);
+});
+
+it('leaves out an id whatever its case, unless it is a uuid', function () {
+    expect(manticoreSchemaSql('docs', function (Blueprint $table) {
+        $table->create();
+        $table->bigInteger('ID');
+        $table->string('a');
+    }))->toBe(['create table `docs` (`a` string)']);
+
+    expect(manticoreSchemaSql('docs', function (Blueprint $table) {
+        $table->bigInteger('id');
+        $table->string('a');
+    }))->toBe(['alter table `docs` add column `a` string']);
+});

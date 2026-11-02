@@ -26,7 +26,7 @@ class ManticoreProcessor extends MySqlProcessor
         foreach ($results as $index => $row) {
             $columns = [];
 
-            foreach ((array) $row as $name => $value) {
+            foreach ($row as $name => $value) {
                 $isQualified = str_contains($name, '.');
                 $isWanted = ! $leftOnly || in_array($name, (array) $query->columns, true);
 
