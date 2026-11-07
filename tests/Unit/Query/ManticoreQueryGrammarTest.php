@@ -1207,6 +1207,8 @@ it('refuses a float_vector_array value that is not an array of vectors', functio
     'a flat list as a string' => ['[0.1, 0.2]'],
     'a word' => ['many'],
     'an injection in a string' => ['[[1]]) or (1=1'],
+    'a JSON object, whose keys would be dropped' => ['{"embedding": [1, 2]}'],
+    'vectors as JSON objects' => ['[{"x": 1, "y": 2}]'],
 ]);
 
 it('refuses knn() by document id on a float_vector_array column', function (int|string $id) {

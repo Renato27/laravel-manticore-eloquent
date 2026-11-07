@@ -94,7 +94,9 @@ $table->floatVector('content_vector', dims: 768, similarity: 'cosine', knnOption
 `floatVectorArray()` takes the same arguments, for a column of
 [several vectors per document](vector-search.md#several-vectors-per-document) on Manticore 29.9.0
 or later. With `knnType: null` the vectors are stored but not searchable, so the column takes no
-options and `update()` works on it:
+options and `update()` works on it. Passing `dims`, `similarity` or `knnOptions` there throws an
+`InvalidArgumentException`: the server would take them and drop them, a `model_name` too, so the column
+would never embed, which the manual does not cover and `ServerLimitsTest` shows.
 
 ```php
 $table->floatVectorArray('chunks', dims: 3);       // → `chunks` float_vector_array knn_type='hnsw' knn_dims='3' hnsw_similarity='L2'

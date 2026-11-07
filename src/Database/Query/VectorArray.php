@@ -37,7 +37,8 @@ final class VectorArray
 
     /**
      * The vectors of the form the server reads back, which is JSON, or null when the string is not
-     * a JSON array. literal() checks that each element is a vector.
+     * a JSON array. A JSON object stays an object, so literal() rejects it rather than dropping its
+     * keys, and checks that each element is a vector.
      *
      * @return array<int, mixed>|null
      */
@@ -47,7 +48,7 @@ final class VectorArray
             return [];
         }
 
-        $vectors = json_decode($value, true);
+        $vectors = json_decode($value);
 
         return is_array($vectors) ? $vectors : null;
     }

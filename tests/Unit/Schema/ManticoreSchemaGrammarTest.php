@@ -195,6 +195,18 @@ it('compiles a float_vector_array column without knn, which takes no options', f
     expect($sql)->toBe('create table `t` (`chunks` float_vector_array)');
 });
 
+it('refuses options on a float_vector_array without knn, which the server would drop', function (array $options) {
+    expect(fn () => manticoreSchemaSql('t', function (Blueprint $blueprint) use ($options) {
+        $blueprint->create();
+        $blueprint->addColumn('floatVectorArray', 'notes', $options);
+    }))->toThrow(InvalidArgumentException::class, 'Column [notes] has no knnType');
+})->with([
+    'dims' => [['dims' => 3]],
+    'a similarity' => [['similarity' => 'L2']],
+    'tuning options' => [['knnOptions' => ['hnsw_m' => 16]]],
+    'a model, which would never embed' => [['knnOptions' => ['model_name' => 'sentence-transformers/all-MiniLM-L6-v2', 'from' => 'title']]],
+]);
+
 it('compiles multi-value attributes', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();
