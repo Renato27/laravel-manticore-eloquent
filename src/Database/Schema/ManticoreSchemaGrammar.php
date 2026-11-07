@@ -408,7 +408,26 @@ class ManticoreSchemaGrammar extends Grammar
      */
     protected function typeFloatVector(Fluent $column): string
     {
-        $parts = ['float_vector'];
+        return $this->vectorType('float_vector', $column);
+    }
+
+    /**
+     * Several vectors per document, with the same knn_* options as a float vector. Without
+     * knn_type the vectors are stored but not searchable, and the column takes no options.
+     *
+     * @see https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array
+     */
+    protected function typeFloatVectorArray(Fluent $column): string
+    {
+        return $this->vectorType('float_vector_array', $column);
+    }
+
+    /**
+     * A vector type with whichever knn_* options the column sets.
+     */
+    protected function vectorType(string $type, Fluent $column): string
+    {
+        $parts = [$type];
 
         if (isset($column->knnType)) {
             $parts[] = "knn_type='{$column->knnType}'";

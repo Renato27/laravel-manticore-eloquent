@@ -290,6 +290,8 @@ class ManticoreQueryBuilder extends Builder
         foreach ($row as $column => $value) {
             if ($value === null) {
                 $row[$column] = $this->emptyValue($column);
+            } elseif ((is_array($value) || is_string($value)) && $this->columnType($column) === 'float_vector_array') {
+                $row[$column] = VectorArray::literal($value, $column);
             } elseif (is_array($value) || (is_string($value) && $this->isListColumn($column))) {
                 $row[$column] = $this->isListColumn($column) ? $this->formatTuple($value, $this->columnType($column)) : $value;
             } else {
@@ -352,6 +354,7 @@ class ManticoreQueryBuilder extends Builder
             'uint', 'bigint', 'float', 'bool', 'timestamp' => 0,
             'string', 'text', 'json' => '',
             'mva', 'mva64', 'float_vector' => new Expression('()'),
+            'float_vector_array' => new Expression('[]'),
             default => null,
         };
     }
@@ -479,6 +482,10 @@ class ManticoreQueryBuilder extends Builder
      */
     public function knn(string $column, array|int|string $vector, int $k = 10, int|array|null $ef = null, string $boolean = 'and'): static
     {
+        if (! is_array($vector) && $this->columnType($column) === 'float_vector_array') {
+            throw new LogicException("Manticore cannot run knn() by document id on the float_vector_array column [{$column}], as ServerLimitsTest shows. Pass one of the document's vectors instead.");
+        }
+
         $this->wheres[] = [
             'type' => 'Knn',
             'column' => $column,
@@ -657,7 +664,7 @@ class ManticoreQueryBuilder extends Builder
         $definition = (array) ($this->connection->select('SHOW CREATE TABLE '.$table)[0] ?? []);
 
         preg_match_all(
-            '/^\s*`?(\w+)`?\s+float_vector\b.*\bmodel_name\s*=/im',
+            '/^\s*`?(\w+)`?\s+float_vector(?:_array)?\b.*\bmodel_name\s*=/im',
             $definition['Create Table'] ?? '',
             $matches
         );

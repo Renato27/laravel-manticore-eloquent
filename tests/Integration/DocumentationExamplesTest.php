@@ -8,6 +8,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use ManticoreEloquent\Concerns\HasManticore;
+use ManticoreEloquent\Eloquent\Casts\VectorArrayCast;
 use ManticoreEloquent\Eloquent\Casts\VectorCast;
 use ManticoreEloquent\Eloquent\ManticoreModel;
 
@@ -46,6 +47,17 @@ class DocsUuidArticle extends ManticoreModel
     public $incrementing = false;
 
     protected $keyType = 'string';
+}
+
+class DocsChunkedArticle extends ManticoreModel
+{
+    protected $table = 'docs_plain_rt';
+
+    protected $guarded = [];
+
+    public $timestamps = false;
+
+    protected $casts = ['chunks' => VectorArrayCast::class];
 }
 
 class DocsVectorArticle extends ManticoreModel
@@ -226,6 +238,27 @@ it('runs the vector search guide', function () {
 
     docsTable('docs_plain_rt')->replace([(new DocsVectorArticle(['id' => 1, 'embedding' => [0.4, 0.5, 0.6]]))->getAttributes()]);
     expect(DocsVectorArticle::find(1)->embedding)->toBe([0.4, 0.5, 0.6]);
+});
+
+it('runs the several vectors per document guide', function () {
+    if (! supportsFloatVectorArray()) {
+        $this->markTestSkipped('float_vector_array needs Manticore 29.9.0 or later.');
+    }
+
+    docsSchema()->create('docs_plain_rt', function (Blueprint $table) {
+        $table->floatVectorArray('chunks', dims: 3);
+        $table->floatVectorArray('frames', knnType: null);
+    });
+
+    DocsChunkedArticle::create(['id' => 1, 'chunks' => [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]]);
+    DocsChunkedArticle::create(['id' => 2, 'chunks' => [[0.9, 0.9, 0.9]]]);
+
+    expect(DocsChunkedArticle::query()->where('id', 1)->first()->chunks)->toBe([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
+        ->and(DocsChunkedArticle::query()->knn('chunks', [0.4, 0.5, 0.6], k: 10)->get()->modelKeys())->toBe([1, 2])
+        ->and(fn () => DocsChunkedArticle::query()->knn('chunks', 1, k: 10)->get())->toThrow(LogicException::class);
+
+    docsTable('docs_plain_rt')->where('id', 2)->update(['frames' => [[1, 2], [3, 4]]]);
+    expect(docsTable('docs_plain_rt')->where('id', 2)->value('frames'))->toBe('[[1.000000,2.000000],[3.000000,4.000000]]');
 });
 
 it('creates the vector column from the migrations guide', function () {
