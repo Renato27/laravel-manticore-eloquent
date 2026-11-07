@@ -71,7 +71,8 @@ changes it.
 | `change()` to anything but `bigInteger` | `LogicException` | [Only `int` to `bigint`](https://manual.manticoresearch.com/Updating_table_schema_and_settings) | Create a new table and reindex |
 | A qualified name or JSON path with anything but plain names | `InvalidArgumentException` | They go out unquoted | |
 | `knn()` by document id on a `floatVectorArray` column | `LogicException` | `ServerLimitsTest`: the server fails on it, and the manual does not cover it | Pass one of the document's vectors |
-| A flat list such as `[0.1, 0.2]`, or a JSON object, in a `floatVectorArray` column | `InvalidArgumentException` naming the column | [A value is always an array of vectors](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array) | `[[0.1, 0.2]]` |
+| A list inside a `floatVector`, `mva` or `mva64` value, or inside a `knn()` query vector, such as `[[0.1, 0.2], 0.3]` | `InvalidArgumentException` naming the column | Each part goes out cast to a number, and a list would be cast to `1` | A flat list, such as `[0.1, 0.2, 0.3]` |
+| A flat list such as `[0.1, 0.2]`, a JSON object or a vector inside a vector in a `floatVectorArray` column | `InvalidArgumentException` naming the column | [A value is always an array of vectors](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array) | `[[0.1, 0.2]]` |
 | `dims`, `similarity` or `knnOptions` on a `floatVectorArray` with `knnType: null` | `InvalidArgumentException` naming the column | `ServerLimitsTest`: the server drops them, a model too, and the manual only says the column [needs no options](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array) | A `knnType`, or no options |
 
 ## Fails with the server's error, or behaves as the server does

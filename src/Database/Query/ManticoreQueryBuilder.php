@@ -293,7 +293,7 @@ class ManticoreQueryBuilder extends Builder
             } elseif ((is_array($value) || is_string($value)) && $this->columnType($column) === 'float_vector_array') {
                 $row[$column] = VectorArray::literal($value, $column);
             } elseif (is_array($value) || (is_string($value) && $this->isListColumn($column))) {
-                $row[$column] = $this->isListColumn($column) ? $this->formatTuple($value, $this->columnType($column)) : $value;
+                $row[$column] = $this->isListColumn($column) ? $this->formatTuple($value, $this->columnType($column), $column) : $value;
             } else {
                 $row[$column] = $this->castForWrite($column, $value);
             }
@@ -360,11 +360,18 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Put a row, or a list of rows, in their columns' types.
+     * Put a row, or a list of rows, in their columns' types. A row is keyed by column names, and a
+     * batch by position. A row may open with a list, such as a vector, so its first value cannot
+     * tell the two apart, as it does in Laravel. Once cast, its lists are literals, and Laravel
+     * reads it as one row.
      */
     protected function castRows(array $rows): array
     {
-        return is_array(reset($rows)) ? array_map([$this, 'castRow'], $rows) : $this->castRow($rows);
+        if (array_filter(array_keys($rows), 'is_string') !== []) {
+            return $this->castRow($rows);
+        }
+
+        return array_map([$this, 'castRow'], $rows);
     }
 
     /**
@@ -492,7 +499,7 @@ class ManticoreQueryBuilder extends Builder
             'type' => 'Knn',
             'column' => $column,
             'vector' => is_array($vector)
-                ? array_map(static fn ($value) => (float) $value, array_values($vector))
+                ? array_map(static fn ($value) => (float) $value, array_values(VectorArray::requireFlatList($vector, $column)))
                 : $vector,
             'k' => $k,
             'options' => is_int($ef) ? ['ef' => $ef] : (array) $ef,
@@ -724,13 +731,16 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * A list as a tuple literal. Every part is cast to a number, so inlining it is safe.
+     * A list as a tuple literal. Every part is cast to a number, so inlining it is safe, and a list
+     * inside it is refused rather than cast to 1.
      *
      * @param  array<int, mixed>|string  $value
+     *
+     * @throws InvalidArgumentException
      */
-    protected function formatTuple(array|string $value, string $type): Expression
+    protected function formatTuple(array|string $value, string $type, string $column): Expression
     {
-        $parts = is_array($value) ? $value : array_filter(explode(',', $value), static fn (string $part) => $part !== '');
+        $parts = is_array($value) ? VectorArray::requireFlatList($value, $column) : array_filter(explode(',', $value), static fn (string $part) => $part !== '');
 
         return new Expression('('.implode(', ', array_map(
             static fn ($part) => $type === 'float_vector' ? var_export((float) $part, true) : (string) (int) $part,
