@@ -240,6 +240,28 @@ it('fails knn() by document id on a float_vector_array, which the manual does no
     }
 });
 
+it('drops the options of a float_vector_array without knn_type, which the manual does not cover', function () {
+    if (! supportsFloatVectorArray()) {
+        $this->markTestSkipped('float_vector_array needs Manticore 29.9.0 or later.');
+    }
+
+    // The manual says such a column "needs no options at all", not what becomes of them. The
+    // server takes them and keeps none: no width check, and a model, even a missing one, never runs.
+    $db = DB::connection('manticore');
+    $db->statement('DROP TABLE IF EXISTS limits_vectors');
+    $db->statement("CREATE TABLE limits_vectors (title text, v float_vector_array knn_dims='2' hnsw_m='32' model_name='no-such/model' from='title')");
+
+    try {
+        $db->statement("INSERT INTO limits_vectors (id, title, v) VALUES (1, 'a', [[1,2,3]]), (2, 'b', [])");
+
+        expect($db->select('SHOW CREATE TABLE limits_vectors')[0]->{'Create Table'})->toContain("v float_vector_array\n)")
+            ->and(collect($db->select('SELECT id, v FROM limits_vectors ORDER BY id ASC'))->pluck('v')->all())
+            ->toBe(['[[1.000000,2.000000,3.000000]]', '[]']);
+    } finally {
+        $db->statement('DROP TABLE IF EXISTS limits_vectors');
+    }
+});
+
 it('leaves the document out of knn() by its id only when the select lists id, which the manual does not cover', function () {
     // The manual's "Find similar docs by id" example selects id and shows no source document, but
     // never says it is left out. Without id in the select it comes back first, at distance 0.
