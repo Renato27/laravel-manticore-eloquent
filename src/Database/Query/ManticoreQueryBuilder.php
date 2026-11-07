@@ -360,15 +360,18 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Put a row, or a list of rows, in their columns' types. A row is keyed by column names, and a
-     * batch by position. A row may open with a list, such as a vector, so its first value cannot
-     * tell the two apart, as it does in Laravel. Once cast, its lists are literals, and Laravel
-     * reads it as one row.
+     * Put a row, or a list of rows, in their columns' types. A batch holds rows, each keyed by
+     * column names, under any keys, such as labels or UUIDs. A row may open with a list, such as a
+     * vector, so its first value cannot tell the two apart, as it does in Laravel. A list has no
+     * column names, so a row is read as a batch only when every value is keyed by them. Once cast,
+     * a row's lists are literals, and Laravel reads it as one row.
      */
     protected function castRows(array $rows): array
     {
-        if (array_filter(array_keys($rows), 'is_string') !== []) {
-            return $this->castRow($rows);
+        foreach ($rows as $row) {
+            if (! is_array($row) || array_filter(array_keys($row), 'is_string') === []) {
+                return $this->castRow($rows);
+            }
         }
 
         return array_map([$this, 'castRow'], $rows);

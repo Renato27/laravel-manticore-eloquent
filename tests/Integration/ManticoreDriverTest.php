@@ -266,6 +266,31 @@ it('writes one row whose first value is a vector or a multi-value attribute', fu
     }
 });
 
+it('writes a batch keyed by labels, whose rows hold vectors', function () {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->floatVector('embedding', 2);
+        $table->mva('tag_ids');
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
+        $table()->insert(['doc-one' => ['id' => 1, 'embedding' => [0.5, 0.25], 'tag_ids' => [3, 1]]]);
+        $table()->replace([
+            'doc-two' => ['embedding' => [1, 0], 'tag_ids' => [2], 'id' => 2],
+            'doc-three' => ['embedding' => [0, 1], 'tag_ids' => [4], 'id' => 3],
+        ]);
+
+        expect($table()->orderBy('id')->get(['id', 'embedding', 'tag_ids'])->map(fn ($row) => (array) $row)->all())->toBe([
+            ['id' => 1, 'embedding' => '0.500000,0.250000', 'tag_ids' => '1,3'],
+            ['id' => 2, 'embedding' => '1.000000,0.000000', 'tag_ids' => '2'],
+            ['id' => 3, 'embedding' => '0.000000,1.000000', 'tag_ids' => '4'],
+        ]);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+});
+
 it('returns a HIGHLIGHT() column for matched documents', function () {
     IntegrationArticle::create(['id' => 1, 'title' => 'Laravel meets Manticore', 'views' => 1, 'published' => true]);
 

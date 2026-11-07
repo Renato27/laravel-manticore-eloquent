@@ -1129,6 +1129,34 @@ it('inserts a batch whose keys are not 0, 1, 2', function () {
         ->toBe('insert into `docs` (`id`, `tags`) values (?, (1)), (?, (2))');
 });
 
+it('inserts a batch keyed by labels, casting the lists in each row', function (array $batch, string $sql) {
+    expect(listQuery()->insert($batch))->toBe($sql);
+})->with([
+    'a vector in a labeled row' => [
+        ['doc-one' => ['id' => 1, 'vec' => [1, 2]]],
+        'insert into `docs` (`id`, `vec`) values (?, (1.0, 2.0))',
+    ],
+    'UUID keys, rows that open with a list' => [
+        ['0b4f5c1e-9d2a-4c6b-8f1e-2a3b4c5d6e7f' => ['tags' => [2], 'id' => 1], '1c5a6d2f-0e3b-4d7c-9a2f-3b4c5d6e7f80' => ['tags' => [3], 'id' => 2]],
+        'insert into `docs` (`id`, `tags`) values (?, (2)), (?, (3))',
+    ],
+]);
+
+it('reads a row whose lists have integer keys as one row', function () {
+    expect(listQuery()->insert(['vec' => [2 => 0.5, 5 => 1], 'tags' => [1 => 3]]))
+        ->toBe('insert into `docs` (`vec`, `tags`) values ((0.5, 1.0), (3))');
+});
+
+it('replaces a batch keyed by labels, casting the lists in each row', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(['vec' => 'float_vector']);
+    $connection->shouldReceive('insert')->once()
+        ->with('replace into `docs` (`id`, `vec`) values (?, (1.0, 2.0))', [1])->andReturn(true);
+
+    expect(queryOn($connection)->replace(['doc-one' => ['id' => 1, 'vec' => [1, 2]]]))->toBeTrue();
+});
+
 it('replaces one row whose first value is a list', function () {
     $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
