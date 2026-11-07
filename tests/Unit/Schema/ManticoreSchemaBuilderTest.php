@@ -46,6 +46,20 @@ it('reports the primary key, knn and full-text indexes of a table', function () 
     ]);
 });
 
+it('reports a knn index on a float_vector_array column, and none on one without knn', function () {
+    $connection = Mockery::mock(Connection::class);
+    $connection->shouldReceive('getSchemaGrammar')->andReturnNull();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')->with('DESC docs')->andReturn([
+        (object) ['Field' => 'id', 'Type' => 'bigint', 'Properties' => ''],
+        (object) ['Field' => 'chunks', 'Type' => 'float_vector_array', 'Properties' => 'knn'],
+        (object) ['Field' => 'stored', 'Type' => 'float_vector_array', 'Properties' => ''],
+    ]);
+
+    expect(array_column((new ManticoreSchemaBuilder($connection))->getIndexes('docs'), 'columns', 'name'))
+        ->toBe(['primary' => ['id'], 'chunks_knn' => ['chunks']]);
+});
+
 it('reports only the primary key when a table has nothing else indexed', function () {
     $connection = Mockery::mock(Connection::class);
     $connection->shouldReceive('getSchemaGrammar')->andReturnNull();

@@ -27,6 +27,7 @@ src/
     ├── Query/
     │   ├── ManticoreQueryBuilder.php      — match/knn/highlight/option/maxMatches/facet/replace
     │   ├── DocumentId.php                 — validates integer and UUID document ids
+    │   ├── VectorArray.php                — float_vector_array literals, [[…], […]]
     │   ├── Grammars/ManticoreQueryGrammar.php  — MATCH(?), knn(), HIGHLIGHT(), OPTION, FACET, REPLACE, no lock
     │   └── Processors/ManticoreProcessor.php
     └── Schema/
@@ -52,6 +53,7 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 |---|---|---|
 | Full-text | `MATCH ... AGAINST` | `MATCH('expr')` as a single predicate, bound parameter |
 | Vector search | — | `knn(col, k, (vector) [, ef])` predicate via `knn()` (floats inlined) |
+| Several vectors per document | — | a `float_vector_array` value as an inlined `[[…], […]]` literal, which the server takes in no quoted form |
 | Highlighting | — | `HIGHLIGHT([opts][, field])` select column via `highlight()` |
 | Tuning | — | `OPTION k=v, …` clause (with automatic `max_matches` on deep paging) |
 | No `LIMIT` | every row | 20 rows, so the grammar asks for all of them |

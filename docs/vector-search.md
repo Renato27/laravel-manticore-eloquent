@@ -1,6 +1,7 @@
 # Vector search
 
-Requires the column to be declared as a `floatVector` in the
+Requires the column to be declared as a `floatVector`, or a `floatVectorArray` for
+[several vectors per document](#several-vectors-per-document), in the
 [migration](migrations.md#vector-columns).
 
 ## Searching
@@ -56,3 +57,46 @@ means rewriting the row with `replace()`:
 DB::connection('manticore')->table('articles')
     ->replace([(new Article(['id' => 1, 'embedding' => [0.4, 0.5, 0.6]]))->getAttributes()]);
 ```
+
+## Several vectors per document
+
+A [`float_vector_array`](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array)
+column keeps several vectors on one document, such as the chunks of an article or the photos of a
+product. It needs Manticore 29.9.0 or later. Declare it with
+[`floatVectorArray()`](migrations.md#vector-columns) and read it with the `VectorArrayCast`:
+
+```php
+use ManticoreEloquent\Eloquent\Casts\VectorArrayCast;
+
+class Article extends ManticoreModel
+{
+    protected $guarded = [];
+    public $timestamps = false;
+    protected $casts = ['chunks' => VectorArrayCast::class];
+}
+
+Article::create(['chunks' => [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]]); // → values ([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
+Article::query()->where('id', 1)->first()->chunks;                // → [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
+
+Article::query()->knn('chunks', $queryVector, k: 10)->get();
+```
+
+The query builder writes the same arrays without the cast, which is what reads them back as
+arrays. `[]`, `null` and a column left out all store no vectors, and read back as `[]`.
+
+`knn()` takes one query vector, as on a `floatVector`. As
+[the manual](https://manual.manticoresearch.com/Searching/KNN#Multiple-vectors-per-document)
+describes, a document matches if any of its vectors is near the query, comes back once, and
+`knn_dist()` is the distance to its closest vector. A document with no vectors never matches.
+
+What differs from a `floatVector`:
+
+- **`knn()` by document id throws a `LogicException`.** Manticore fails on it for this type. The
+  manual does not cover it, so `ServerLimitsTest` shows it. Pass one of the document's vectors.
+- **The server checks the widths.** On a KNN column every vector has `dims` entries, and within one
+  value all vectors have the same width, as
+  [the manual](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array)
+  says. A flat list such as `[0.1, 0.2]` throws an `InvalidArgumentException`, since it cannot be split
+  into vectors.
+- **A column without KNN takes `update()`.** On a KNN column, rewrite the row with `replace()`, as
+  above.

@@ -219,6 +219,27 @@ it('returns no more joined rows than the documents of the left table, or 1000, w
         ->and((int) $meta['total_found'])->toBe(100 * 11 + 1);
 });
 
+it('fails knn() by document id on a float_vector_array, which the manual does not cover', function () {
+    if (! supportsFloatVectorArray()) {
+        $this->markTestSkipped('float_vector_array needs Manticore 29.9.0 or later.');
+    }
+
+    // The manual's "Find similar docs by id" names no column type, and its float_vector_array
+    // sections never mention it. Buddy reads the document's vectors and builds a query it cannot parse.
+    $db = DB::connection('manticore');
+    $db->statement('DROP TABLE IF EXISTS limits_vectors');
+    $db->statement("CREATE TABLE limits_vectors (v float_vector_array knn_type='hnsw' knn_dims='2' hnsw_similarity='l2')");
+
+    try {
+        $db->statement('INSERT INTO limits_vectors (id, v) VALUES (1, [[1,0],[0,1]]), (2, [[1,1]])');
+
+        expect(fn () => $db->select('SELECT id FROM limits_vectors WHERE knn(v, 5, 1)'))->toThrow(QueryException::class)
+            ->and($db->select('SELECT id FROM limits_vectors WHERE knn(v, 5, (1,0))'))->toHaveCount(2);
+    } finally {
+        $db->statement('DROP TABLE IF EXISTS limits_vectors');
+    }
+});
+
 it('takes a quoted number in these forms, so the rule is not that it rejects them', function () {
     $db = DB::connection('manticore');
 

@@ -111,7 +111,7 @@ each limit.
 |---|---|
 | [Querying](docs/querying.md) | Full-text `match` and `matchText`, `option`, `maxMatches`, `facet`, `highlight`, JSON |
 | [Writing documents](docs/writing-documents.md) | `update` vs `replace`, partial `replaceWhereId`, multi-value attributes |
-| [Vector search](docs/vector-search.md) | `knn`, "more like this document", `VectorCast` |
+| [Vector search](docs/vector-search.md) | `knn`, "more like this document", `VectorCast`, several vectors per document |
 | [UUID document ids](docs/uuid-document-ids.md) | The same primary key in your database and in Manticore |
 | [Migrations](docs/migrations.md) | Column types, vector columns, table options |
 | [Compatibility](docs/compatibility.md) | What works, what is translated and what fails |

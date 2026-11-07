@@ -113,6 +113,14 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
             });
         }
 
+        if (! Blueprint::hasMacro('floatVectorArray')) {
+            Blueprint::macro('floatVectorArray', function (string $column, ?int $dims = null, ?string $knnType = 'hnsw', string $similarity = 'L2', array $knnOptions = []) {
+                $similarity = $knnType === null ? null : $similarity;
+
+                return $this->addColumn('floatVectorArray', $column, compact('dims', 'knnType', 'similarity', 'knnOptions'));
+            });
+        }
+
         if (! Blueprint::hasMacro('manticoreOptions')) {
             Blueprint::macro('manticoreOptions', function (array $options) {
                 return $this->addCommand('manticoreTableOptions', compact('options'));
