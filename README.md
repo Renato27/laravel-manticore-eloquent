@@ -41,6 +41,7 @@ MANTICORE_PORT=9306        # MySQL protocol port
 MANTICORE_USERNAME=
 MANTICORE_PASSWORD=
 MANTICORE_ENGINE=          # columnar, rowwise or empty
+MANTICORE_DEFAULT_LIMIT=   # rows of a query without limit(); empty = every row
 ```
 
 The package auto-registers a `manticore` connection in `config/database.connections`, so you

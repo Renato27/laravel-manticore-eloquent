@@ -83,6 +83,7 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
                 'username' => config('manticore-eloquent.username', null),
                 'password' => config('manticore-eloquent.password', null),
                 'engine' => config('manticore-eloquent.engine', null),
+                'default_limit' => config('manticore-eloquent.default_limit', null),
                 'prefix' => '',
             ],
         ]);

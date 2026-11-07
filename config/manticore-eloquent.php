@@ -39,4 +39,18 @@ return [
     */
 
     'engine' => env('MANTICORE_ENGINE', null),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Limit of a query without limit()
+    |--------------------------------------------------------------------------
+    |
+    | Manticore returns 20 rows unless told otherwise. By default (null) the
+    | driver asks for every row, as Eloquent promises for get(), all() and
+    | relations. A number caps every such query at that many rows instead,
+    | relations included, so a relation larger than it comes back cut short.
+    |
+    */
+
+    'default_limit' => env('MANTICORE_DEFAULT_LIMIT', null),
 ];
