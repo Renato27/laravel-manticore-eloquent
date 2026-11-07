@@ -39,6 +39,10 @@ Constraints that come from Manticore, not from this driver:
   so when Manticore rejects the statement the driver reads the document, overlays your fields
   and rewrites all of it. A write to that document in between is lost, and vector values go
   through their text form, which keeps about 8 significant digits.
+- **On a table with an [auto embeddings](vector-search.md#searching-by-text) column it is not
+  atomic either, whatever the id.** Buddy's partial replace keeps the old vector, so the driver
+  rewrites the whole document as above, leaving that column out so the server embeds the new
+  text. The manual does not cover this; `AutoEmbeddingsTest` shows it.
 
 ## Multi-value attributes
 

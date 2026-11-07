@@ -339,8 +339,8 @@ it('treats an empty replace() as a no-op', function () {
 it('compiles a knn() predicate against a document id', function () {
     $q = manticoreQuery('docs')->knn('embedding', 123, 5);
 
-    expect($q->toSql())->toContain('where knn(embedding, 5, 123)');
-    expect($q->getBindings())->toBe([]);
+    expect($q->toSql())->toContain('where knn(embedding, 5, 123) and `id` != ?');
+    expect($q->getBindings())->toBe([123]);
 });
 
 it('adds the ef argument to a document-id knn()', function () {
@@ -575,10 +575,7 @@ it('leaves an auto-embeddings column out of the emulated partial replace, so it 
     $connection->shouldReceive('getName')->andReturn('manticore');
     $connection->shouldReceive('columnTypes')->with('articles')
         ->andReturn(['id' => 'uuid', 'title' => 'text', 'tag' => 'string', 'vec' => 'float_vector', 'other' => 'float_vector']);
-    $connection->shouldReceive('insert')
-        ->once()
-        ->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])
-        ->andThrow(new QueryException('manticore', 'replace into', [], new Exception("unexpected SET, expecting VALUES near 'SET'")));
+    $connection->shouldReceive('insert')->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])->never();
     $connection->shouldReceive('select')->with('DESC articles')->andReturn([
         (object) ['Field' => 'id', 'Type' => 'uuid', 'Properties' => ''],
         (object) ['Field' => 'title', 'Type' => 'text', 'Properties' => 'indexed stored'],
@@ -655,7 +652,7 @@ it('leaves knn() by a numeric string id to the server, without reading the vecto
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('select')
         ->once()
-        ->withArgs(fn (string $sql) => $sql === unlimited('select * from `docs` where knn(embedding, 10, 42)'))
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === unlimited('select * from `docs` where knn(embedding, 10, 42) and `id` != ?') && $bindings === [42])
         ->andReturn([]);
 
     (new ManticoreQueryBuilder(
@@ -1229,10 +1226,7 @@ it('leaves an auto-embeddings float_vector_array out of the emulated partial rep
     $connection->shouldReceive('getName')->andReturn('manticore');
     $connection->shouldReceive('columnTypes')->with('articles')
         ->andReturn(['id' => 'uuid', 'title' => 'text', 'chunks' => 'float_vector_array', 'kept' => 'float_vector_array']);
-    $connection->shouldReceive('insert')
-        ->once()
-        ->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])
-        ->andThrow(new QueryException('manticore', 'replace into', [], new Exception("unexpected SET, expecting VALUES near 'SET'")));
+    $connection->shouldReceive('insert')->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])->never();
     $connection->shouldReceive('select')->with('DESC articles')->andReturn([
         (object) ['Field' => 'id', 'Type' => 'uuid', 'Properties' => ''],
         (object) ['Field' => 'title', 'Type' => 'text', 'Properties' => 'indexed stored'],
@@ -1251,4 +1245,99 @@ it('leaves an auto-embeddings float_vector_array out of the emulated partial rep
         ->andReturn(true);
 
     expect(queryOn($connection, 'articles')->replaceWhereId($uuid, ['title' => 'new text']))->toBeTrue();
+});
+
+/**
+ * A connection to `articles`, whose `vec` is a float_vector defined as $vec in SHOW CREATE TABLE.
+ */
+function articlesWithVector(string $vec): ManticoreConnection
+{
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->with('articles')
+        ->andReturn(['id' => 'bigint', 'title' => 'text', 'tag' => 'string', 'vec' => 'float_vector']);
+    $connection->shouldReceive('select')->with('SHOW CREATE TABLE articles')->andReturn([
+        (object) ['Table' => 'articles', 'Create Table' => "CREATE TABLE articles (\nid bigint,\ntitle text,\ntag string attribute,\nvec {$vec}\n)"],
+    ]);
+
+    return $connection;
+}
+
+it('replaces the whole document by a numeric id when it has an auto-embeddings column, since a partial REPLACE keeps the old vector', function () {
+    $connection = articlesWithVector("float_vector knn_type='hnsw' hnsw_similarity='COSINE' model_name='openai:embed' from='title' api_url='http://litellm:4000/v1/embeddings'");
+    $connection->shouldReceive('select')->with('DESC articles')->andReturn([
+        (object) ['Field' => 'id', 'Type' => 'bigint', 'Properties' => ''],
+        (object) ['Field' => 'title', 'Type' => 'text', 'Properties' => 'indexed stored'],
+        (object) ['Field' => 'tag', 'Type' => 'string', 'Properties' => ''],
+        (object) ['Field' => 'vec', 'Type' => 'float_vector', 'Properties' => 'knn'],
+    ]);
+    $connection->shouldReceive('select')
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === 'select * from `articles` where `id` = ? limit 1' && $bindings === [42])
+        ->andReturn([(object) ['id' => 42, 'title' => 'old text', 'tag' => 'kept', 'vec' => '0.5,0.6']]);
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with('replace into `articles` (`id`, `title`, `tag`) values (?, ?, ?)', [42, 'new text', 'kept'])
+        ->andReturn(true);
+
+    expect(queryOn($connection, 'articles')->replaceWhereId(42, ['title' => 'new text']))->toBeTrue();
+});
+
+it('keeps the native partial replace by a numeric id when no vector is generated by the server', function () {
+    $connection = articlesWithVector("float_vector knn_type='hnsw' knn_dims='2' hnsw_similarity='L2'");
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', 42])
+        ->andReturn(true);
+
+    expect(queryOn($connection, 'articles')->replaceWhereId(42, ['title' => 'new text']))->toBeTrue();
+});
+
+it('leaves the document out of knn() by a numeric id, which Manticore only does when the select lists id', function (int|string $id) {
+    $q = manticoreQuery('docs')->select('title')->knn('embedding', $id, k: 10);
+
+    expect($q->toSql())->toBe(unlimited('select `title` from `docs` where knn(embedding, 10, 42) and `id` != ?'))
+        ->and($q->getBindings())->toBe([42]);
+})->with(['an integer' => 42, 'a numeric string' => '42']);
+
+it('adds no id filter to knn() by a vector', function () {
+    expect(manticoreQuery('docs')->knn('embedding', [0.1, 0.2], k: 10)->getBindings())->toBe([]);
+});
+
+it('compiles knnText() with the text bound, which Manticore embeds with the model of the column', function () {
+    $q = manticoreQuery('docs')->knnText('embedding', "it's a purse", k: 5);
+
+    expect($q->toSql())->toBe(unlimited('select * from `docs` where knn(`embedding`, 5, ?)'))
+        ->and($q->getBindings())->toBe(["it's a purse"]);
+});
+
+it('adds the ef argument to knnText()', function () {
+    expect(manticoreQuery('docs')->knnText('embedding', 'purse', 10, ['ef' => 100, 'rescore' => true])->toSql())
+        ->toContain('knn(`embedding`, 10, ?, {ef=100, rescore=1})');
+});
+
+it('takes an integer ef in knnText(), as in knn()', function () {
+    expect(manticoreQuery('docs')->knnText('embedding', 'purse', 10, 2000)->toSql())
+        ->toContain('knn(`embedding`, 10, ?, {ef=2000})');
+});
+
+it('keeps the knnText() binding in the order of the filters', function () {
+    $q = manticoreQuery('docs')->where('tag', 'x')->knnText('embedding', 'purse')->where('views', 1);
+
+    expect($q->getBindings())->toBe(['x', 'purse', 1]);
+});
+
+it('runs knnText() as one query, without reading a document first', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')
+        ->once()
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === unlimited('select * from `docs` where knn(`embedding`, 10, ?)') && $bindings === ['550e8400-e29b-41d4-a716-446655440000'])
+        ->andReturn([]);
+
+    queryOn($connection)->knnText('embedding', '550e8400-e29b-41d4-a716-446655440000')->get();
+});
+
+it('takes knnText() on a float_vector_array column', function () {
+    expect(vectorArrayQuery()->knnText('chunks', 'how do I rotate a certificate')->toSql())
+        ->toContain('knn(`chunks`, 10, ?)');
 });

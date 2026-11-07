@@ -13,8 +13,8 @@ Article::query()
     ->selectRaw('*, knn_dist() as distance')
     ->get();
 
-// "more like this document": pass a document id instead of a vector. Manticore returns
-// the neighbours, never the source document itself. A UUID works too.
+// "more like this document": pass a document id instead of a vector. It returns the
+// neighbours without the source document, whatever the select lists. A UUID works too.
 Article::query()->knn('embedding', $article->id, k: 10)->get();
 
 // The 4th argument is the whole option block — knn(…, {ef=2000, rescore=1}). Any option
@@ -24,8 +24,43 @@ Article::query()
     ->get();
 ```
 
+A numeric id adds `id != ?` to the query. Manticore only leaves the source document out when the
+select lists `id`, so `pluck('title')` would bring it back first, at distance 0. The manual does not
+say either way, so `ServerLimitsTest` shows it.
+
 On a relational model with the `HasManticore` trait, start from `Company::manticore()` instead of
 `Company::query()`.
+
+## Searching by text
+
+A column with [auto embeddings](https://manual.manticoresearch.com/Searching/KNN) gets its vectors
+from the server, which embeds the fields in `from` with the model in `model_name`. The model can be
+local, or remote with an API key. A gateway that speaks the OpenAI API, such as LiteLLM, takes the
+`provider:model` form with `api_url`:
+
+```php
+$table->text('title');
+$table->floatVector('embedding', similarity: 'cosine', knnOptions: [
+    'model_name' => 'openai:embed',   // the part before ':' only selects the request format
+    'from' => 'title',
+    'api_key' => env('EMBEDDINGS_KEY'),
+    'api_url' => 'http://litellm:4000/v1/embeddings',
+    'api_timeout' => 30,
+]);
+```
+
+`knnText()` searches such a column by text, which the server embeds with the same model:
+
+```php
+// knn(`embedding`, 10, ?)  with the text bound
+Article::query()->knnText('embedding', 'leather purse', k: 10)->get();
+```
+
+It takes the same `ef` and option block as `knn()`, and works on a `floatVectorArray` too. Pass the
+text to `knnText()`, not to `knn()`: there a string is a document id.
+
+Writes leave the column out, and the server fills it. `replaceWhereId()` gets the vector embedded
+again from the new text, as described in [Partial replace](writing-documents.md#partial-replace).
 
 ## Writing vectors
 

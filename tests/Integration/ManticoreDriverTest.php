@@ -206,6 +206,28 @@ it('runs a knn vector search ordered by distance', function () {
     Schema::connection('manticore')->dropIfExists('it_vectors_rt');
 });
 
+it('leaves the document out of knn() by its id whatever the select lists', function () {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->string('name');
+        $table->floatVector('embedding', 2);
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
+        $table()->insert([
+            ['id' => 1, 'name' => 'a', 'embedding' => [0.0, 0.0]],
+            ['id' => 2, 'name' => 'b', 'embedding' => [0.0, 1.0]],
+            ['id' => 3, 'name' => 'c', 'embedding' => [5.0, 5.0]],
+        ]);
+
+        expect($table()->knn('embedding', 1, 5)->pluck('name')->all())->toBe(['b', 'c'])
+            ->and($table()->knn('embedding', 1, 5)->get()->pluck('name')->all())->toBe(['b', 'c']);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+});
+
 it('runs knn() by a numeric string document id', function () {
     Schema::connection('manticore')->dropIfExists('it_vectors_rt');
     Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {

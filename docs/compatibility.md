@@ -56,6 +56,8 @@ changes it.
 | `count()` on a left join, `paginate()` on a grouped query | Counting the rows | Reads them all | `ServerLimitsTest` |
 | A date in a `timestamp` column | A Unix integer | | [`timestamp`](https://manual.manticoresearch.com/Creating_a_table/Data_types) |
 | `lock()`, `lockForUpdate()` | Nothing | | `ServerLimitsTest`: `FOR UPDATE` is rejected |
+| `knn('embedding', 42)` | `knn(embedding, k, 42) and id != 42` | | `ServerLimitsTest`: without `id` in the select, the source document comes back |
+| `replaceWhereId()` on a table with an auto-embeddings column | A whole `replace` without that column | Not atomic | `AutoEmbeddingsTest`: a partial `REPLACE` keeps the old vector |
 
 ## Refused with a clear error
 
