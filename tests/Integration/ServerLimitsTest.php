@@ -205,6 +205,20 @@ it('counts the documents of the left table in COUNT(*) on a left join, not the r
     expect((int) reset($count))->toBe(2);
 });
 
+it('returns no more joined rows than the documents of the left table, or 1000, whatever max_matches says', function () {
+    // The manual's Joining page states no such cap, and its own LEFT JOIN example returns more rows
+    // than its left table has documents. SHOW META still counts every row.
+    $db = DB::connection('manticore');
+    $db->statement('INSERT INTO limits_a (id, n) VALUES '.implode(', ', array_map(fn ($id) => "({$id}, 1)", range(3, 101))));
+    $db->statement('INSERT INTO limits_b (id, a_id, note) VALUES '.implode(', ', array_map(fn ($id) => "({$id}, 1, 'x')", range(12, 21))));
+
+    $rows = $db->select('SELECT limits_a.id FROM limits_a LEFT JOIN limits_b ON limits_a.n = limits_b.a_id LIMIT 5000 OPTION max_matches=5000');
+    $meta = collect($db->select('SHOW META'))->pluck('Value', 'Variable_name');
+
+    expect($rows)->toHaveCount(1000)
+        ->and((int) $meta['total_found'])->toBe(100 * 11 + 1);
+});
+
 it('takes a quoted number in these forms, so the rule is not that it rejects them', function () {
     $db = DB::connection('manticore');
 

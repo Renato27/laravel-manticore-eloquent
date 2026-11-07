@@ -131,7 +131,7 @@ it('walks an integer table with lazyById()', function () {
     expect(IntegrationArticle::query()->lazyByIdDesc(2)->map(fn ($doc) => $doc->id)->all())->toBe([3, 2, 1]);
 });
 
-it('paginates beyond the default max_matches cap', function () {
+it('paginates with the total of the table', function () {
     for ($i = 1; $i <= 30; $i++) {
         IntegrationArticle::create(['id' => $i, 'title' => "doc {$i}", 'views' => $i, 'published' => true]);
     }

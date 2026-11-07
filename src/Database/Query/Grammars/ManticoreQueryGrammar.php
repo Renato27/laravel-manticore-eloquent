@@ -3,6 +3,7 @@
 namespace ManticoreEloquent\Database\Query\Grammars;
 
 use Illuminate\Contracts\Database\Query\Expression;
+use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use Illuminate\Support\Str;
@@ -205,7 +206,7 @@ class ManticoreQueryGrammar extends MySqlGrammar
         $query = clone $query;
 
         if ($query->limit === null) {
-            $query->limit(self::UNLIMITED);
+            $query->limit($this->defaultLimit($query));
         }
 
         if (is_string($query->from)) {
@@ -228,6 +229,28 @@ class ManticoreQueryGrammar extends MySqlGrammar
         }
 
         return $query;
+    }
+
+    /**
+     * The limit of a select that has none: every row, unless the connection sets default_limit.
+     * That setting caps every such select, relations included, as Manticore's own default of 20
+     * does, so a relation larger than it comes back cut short. It is a positive integer, or the
+     * digits of one, as an env value comes.
+     */
+    protected function defaultLimit(ManticoreQueryBuilder $query): int
+    {
+        $connection = $query->getConnection();
+        $limit = $connection instanceof Connection ? $connection->getConfig('default_limit') : null;
+
+        if ($limit === null || $limit === '') {
+            return self::UNLIMITED;
+        }
+
+        if (! (is_int($limit) || (is_string($limit) && ctype_digit($limit))) || (int) $limit < 1) {
+            throw new InvalidArgumentException('The default_limit of a Manticore connection must be a positive integer, ['.var_export($limit, true).'] given.');
+        }
+
+        return min((int) $limit, self::UNLIMITED);
     }
 
     /**
@@ -494,8 +517,9 @@ class ManticoreQueryGrammar extends MySqlGrammar
 
     /**
      * Build the trailing OPTION clause. Manticore caps results at max_matches (1000 by
-     * default), so a query that reaches past that raises the cap unless it was set by hand. The
-     * outer select of a sub-select takes no OPTION.
+     * default), the rows and the groups of each facet alike, so a query whose rows or facet limit
+     * reach past that raises the cap unless it was set by hand. The outer select of a sub-select
+     * takes no OPTION.
      */
     protected function compileOptionClause(ManticoreQueryBuilder $query): string
     {
@@ -503,7 +527,10 @@ class ManticoreQueryGrammar extends MySqlGrammar
         unset($options['__facets']);
 
         if (! array_key_exists('max_matches', $options) && ! $this->isSubSelect($query)) {
-            $needed = (int) ($query->offset ?? 0) + (int) ($query->limit ?? 0);
+            $needed = max(
+                (int) ($query->offset ?? 0) + (int) ($query->limit ?? 0),
+                ...array_map($this->facetReach(...), $query->options['__facets'] ?? [''])
+            );
 
             if ($needed > 1000) {
                 $options['max_matches'] = min($needed, self::UNLIMITED);
@@ -521,6 +548,16 @@ class ManticoreQueryGrammar extends MySqlGrammar
         }
 
         return ' OPTION '.implode(', ', $pairs);
+    }
+
+    /**
+     * How many groups a facet reaches with its LIMIT [offset,] count, or 0 without one.
+     */
+    protected function facetReach(string $facet): int
+    {
+        return preg_match('/\blimit\s+(\d+)(?:\s*,\s*(\d+))?\s*$/i', $facet, $limit)
+            ? (int) $limit[1] + (int) ($limit[2] ?? 0)
+            : 0;
     }
 
     /**
