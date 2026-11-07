@@ -14,6 +14,7 @@ function mockManticoreConnection()
     $connection = Mockery::mock(ManticoreConnection::class);
     $connection->shouldReceive('columnTypes')->andReturn([])->byDefault();
     $connection->shouldReceive('getDatabaseName')->andReturn('')->byDefault();
+    $connection->shouldReceive('getConfig')->andReturn(null)->byDefault();
 
     return $connection;
 }
@@ -76,6 +77,91 @@ it('never emits row-level locks', function () {
 
 it('appends a FACET clause', function () {
     expect(manticoreQuery()->match('cloud')->facet('country')->toSql())->toContain('FACET country');
+});
+
+it('takes a column, a JSON path and an alias in facet()', function () {
+    expect(manticoreQuery()->facet('meta.author')->facet('year', 'published')->toSql())
+        ->toEndWith('FACET meta.author FACET year AS published');
+});
+
+it('raises max_matches to the groups a facet limit asks for, which it would cut at 1000', function (string $facet, string $option) {
+    expect(manticoreQuery('docs')->limit(1)->facet(new Expression($facet))->toSql())
+        ->toBe("select * from `docs` limit 1 OPTION {$option} FACET {$facet}");
+})->with([
+    'a count' => ['id ORDER BY id ASC LIMIT 1500', 'max_matches=1500'],
+    'an offset and a count' => ['id limit 1000, 500', 'max_matches=1500'],
+]);
+
+it('raises max_matches to the largest facet limit, or the rows if they reach further', function () {
+    expect(manticoreQuery('docs')->limit(1)->facet(new Expression('id LIMIT 1200'))->facet(new Expression('g LIMIT 3000'))->toSql())
+        ->toContain('OPTION max_matches=3000 FACET')
+        ->and(manticoreQuery('docs')->limit(5000)->facet(new Expression('id LIMIT 1200'))->toSql())
+        ->toContain('OPTION max_matches=5000 FACET');
+});
+
+it('leaves max_matches alone for a facet within 1000 groups', function () {
+    expect(manticoreQuery('docs')->limit(1)->facet(new Expression('id LIMIT 1000'))->facet('category')->toSql())
+        ->toBe('select * from `docs` limit 1 FACET id LIMIT 1000 FACET category');
+});
+
+it('keeps a max_matches set by hand over a facet limit', function () {
+    expect(manticoreQuery('docs')->limit(1)->maxMatches(50)->facet(new Expression('id LIMIT 1500'))->toSql())
+        ->toBe('select * from `docs` limit 1 OPTION max_matches=50 FACET id LIMIT 1500');
+});
+
+it('treats an empty facet alias as none', function () {
+    expect(manticoreQuery()->facet('category', '')->toSql())->toEndWith('FACET category');
+});
+
+it('passes a raw facet expression through verbatim', function () {
+    expect(manticoreQuery()->facet(new Expression('category ORDER BY COUNT(*) DESC LIMIT 50'))->toSql())
+        ->toEndWith('FACET category ORDER BY COUNT(*) DESC LIMIT 50');
+});
+
+it('refuses a facet field that is not a plain name', function (string $field) {
+    expect(fn () => manticoreQuery()->facet($field))->toThrow(InvalidArgumentException::class, 'Invalid facet field');
+})->with([
+    'category; DROP TABLE companies',
+    'category LIMIT 50',
+    '1category',
+    'meta.',
+    '',
+]);
+
+it('refuses a facet alias that is not a plain name', function () {
+    expect(fn () => manticoreQuery()->facet('category', 'kind; x'))->toThrow(InvalidArgumentException::class, 'Invalid facet alias');
+});
+
+it('refuses an alias next to a raw facet, which would land after its LIMIT', function () {
+    expect(fn () => manticoreQuery()->facet(new Expression('category LIMIT 5'), 'kind'))
+        ->toThrow(InvalidArgumentException::class, 'alias of a raw facet');
+});
+
+it('names each facet result by its alias or its field', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('selectResultSets')->andReturn([[], [], [], [], []]);
+
+    $query = (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs')
+        ->facet('meta.author')
+        ->facet('year', 'published')
+        ->facet(new Expression('category ORDER BY COUNT(*) DESC LIMIT 5'))
+        ->facet(new Expression('tag AS top ORDER BY COUNT(*) DESC'));
+
+    expect(array_keys($query->getWithFacets()['facets']))->toBe(['meta.author', 'published', 'category', 'top']);
+});
+
+it('names a raw facet written in lower case or over several lines', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('selectResultSets')->andReturn([[], [], [], []]);
+
+    $query = (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs')
+        ->facet(new Expression('year as published order by year desc'))
+        ->facet(new Expression("  category\n    ORDER BY COUNT(*) DESC"))
+        ->facet(new Expression("tag\tAS\ttop"));
+
+    expect(array_keys($query->getWithFacets()['facets']))->toBe(['published', 'category', 'top']);
 });
 
 it('compiles a knn() predicate with inlined float literals', function () {
@@ -201,6 +287,49 @@ it('leaves an aggregate without the unlimited clause', function () {
 it('lets an explicit max_matches win over the unlimited clause', function () {
     expect(manticoreQuery('docs')->maxMatches(50)->toSql())
         ->toBe('select * from `docs` limit 2147483646 OPTION max_matches=50');
+});
+
+function queryWithDefaultLimit(mixed $limit): ManticoreQueryBuilder
+{
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('getConfig')->andReturn($limit);
+
+    return (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs');
+}
+
+it('caps a query without a limit at the default_limit of the connection', function () {
+    expect(queryWithDefaultLimit(50)->toSql())->toBe('select * from `docs` limit 50')
+        ->and(queryWithDefaultLimit('2000')->toSql())->toBe('select * from `docs` limit 2000 OPTION max_matches=2000')
+        ->and(queryWithDefaultLimit(50)->limit(5)->toSql())->toBe('select * from `docs` limit 5');
+});
+
+it('asks for every row when default_limit is empty', function (mixed $limit) {
+    expect(queryWithDefaultLimit($limit)->toSql())->toBe(unlimited('select * from `docs`'));
+})->with([null, '']);
+
+it('refuses a default_limit that is not a positive integer', function (mixed $limit) {
+    expect(fn () => queryWithDefaultLimit($limit)->toSql())->toThrow(InvalidArgumentException::class, 'default_limit');
+})->with([0, -5, 'many', '10.5', '1e3', ' 50', true, 2.5]);
+
+it('takes a default_limit written as digits, as an env value comes', function () {
+    expect(queryWithDefaultLimit('75')->toSql())->toBe('select * from `docs` limit 75');
+});
+
+function paginationQuery(int $count): ManticoreQueryBuilder
+{
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')->andReturn([(object) ['aggregate' => $count]]);
+
+    return (new ManticoreQueryBuilder($connection, new ManticoreQueryGrammar($connection), new ManticoreProcessor))->from('docs');
+}
+
+it('caps the total of paginate() at a max_matches set by hand', function () {
+    expect(paginationQuery(5000)->maxMatches(100)->getCountForPagination())->toBe(100)
+        ->and(paginationQuery(40)->maxMatches(100)->getCountForPagination())->toBe(40)
+        ->and(paginationQuery(5000)->option('max_matches', '300')->getCountForPagination())->toBe(300)
+        ->and(paginationQuery(5000)->getCountForPagination())->toBe(5000);
 });
 
 it('treats an empty replace() as a no-op', function () {

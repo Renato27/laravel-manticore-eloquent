@@ -32,7 +32,8 @@ changes it.
 
 | You write | What runs | Worth knowing | Why |
 |---|---|---|---|
-| A query without `limit()` | `limit` and `max_matches` covering every row | [High values cost memory](querying.md#row-limits) | [20 rows and a window of 1000 by default](https://manual.manticoresearch.com/Searching/Pagination) |
+| A query without `limit()` | `limit` and `max_matches` covering every row, or `default_limit` when set | [High values cost memory](querying.md#row-limits) | [20 rows and a window of 1000 by default](https://manual.manticoresearch.com/Searching/Pagination) |
+| `facet(DB::raw('tag LIMIT 5000'))` | `max_matches` raised to the facet's limit | | `RowLimitTest`: the groups stop at `max_matches`, 1000 by default |
 | `where('views', '10')`, `update(['slug' => 10])` | The value in the column's type | Read once per process with `DESC` | `ServerLimitsTest`: the server takes a quoted number only in some forms and ignores others on `UPDATE` |
 | `whereNull('views')`, `update(['views' => null])` | `views = 0`, or `''` on a string | A real `0` counts as null, and a `null` written reads back as `0` or `''`, except a date, enum or encrypted attribute on a model, which reads as `null` | [`IS NULL` is for JSON attributes](https://manual.manticoresearch.com/Searching/Expressions) |
 | `where('meta->a', 1)`, `update(['meta->a' => 2])` | `meta.a = 1` | [An update only takes numbers](https://manual.manticoresearch.com/Data_creation_and_modification/Updating_documents/UPDATE) | |
@@ -74,6 +75,7 @@ changes it.
 |---|---|---|
 | `has`, `whereHas`, `doesntHave`, `whereRelation`, `whereAttachedTo`, `withWhereHas`, `withCount`, `withSum` and the other aggregates, `withExists`, `loadCount`, `latestOfMany`, `oldestOfMany`, `ofMany`, `whereExists`, `whereIn` with a subquery, `selectSub`, `joinSub`, `addSelect` or `orderBy` with a query, `insertUsing` | [Sub-selects only exist in `FROM`](https://manual.manticoresearch.com/Searching/Sub-selects) | Run the two queries, or `pluck()` the ids and use `whereIn()`. For the latest of a relation, `$user->posts()->latest()->first()` |
 | A second `join()` in one query | [The syntax has one `JOIN`](https://manual.manticoresearch.com/Searching/Joining), and `ServerLimitsTest` | Run the queries separately |
+| A join whose rows outnumber the documents of its left table, and its `count()` | [Rows stop at that number, or at 1000 for a smaller table, without an error](querying.md#joins-and-sub-selects). The manual does not say so, and `ServerLimitsTest` measures it | Put the larger side on the left, or run the queries separately |
 | A table alias in a join, `table.*` of the joined table | `ServerLimitsTest` | Name the tables and the columns |
 | `union` | `ServerLimitsTest` | Run the queries separately |
 | `like`, `whereLike` | [Not among the operators of `WHERE`](https://manual.manticoresearch.com/Searching/Filters), and `ServerLimitsTest` | `matchText()`, or [`REGEX()`](https://manual.manticoresearch.com/Functions/String_functions) through an alias |

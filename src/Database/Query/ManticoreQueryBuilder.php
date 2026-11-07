@@ -3,6 +3,7 @@
 namespace ManticoreEloquent\Database\Query;
 
 use Closure;
+use Illuminate\Contracts\Database\Query\Expression as ExpressionContract;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Expression;
 use Illuminate\Database\QueryException;
@@ -12,6 +13,7 @@ use Illuminate\Support\LazyCollection;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use LogicException;
+use ManticoreEloquent\Database\Query\Grammars\ManticoreQueryGrammar;
 use RuntimeException;
 
 class ManticoreQueryBuilder extends Builder
@@ -435,7 +437,9 @@ class ManticoreQueryBuilder extends Builder
         $rows = collect($this->processor->processSelect($this, array_shift($sets)));
 
         $names = array_map(
-            static fn (string $facet) => last(preg_split('/\s+as\s+/i', $facet)),
+            static fn (string $facet) => preg_match('/\s+as\s+([A-Za-z_][A-Za-z0-9_]*)/i', $facet, $alias)
+                ? $alias[1]
+                : preg_split('/\s+/', trim($facet))[0],
             $this->options['__facets'] ?? []
         );
 
@@ -511,9 +515,30 @@ class ManticoreQueryBuilder extends Builder
 
     /**
      * Add a FACET clause. get() ignores the result, and getWithFacets() returns it.
+     *
+     * The field goes into the SQL unquoted, so it must be a column name or a JSON path such as
+     * meta.author, and the alias a plain name. Anything richer, such as Manticore's
+     * `FACET category ORDER BY COUNT(*) DESC LIMIT 50`, is explicit, as in option(), with any
+     * alias written inside it: facet(DB::raw('category AS top ORDER BY COUNT(*) DESC LIMIT 50')).
+     *
+     * @throws InvalidArgumentException
      */
-    public function facet(string $field, ?string $alias = null): static
+    public function facet(string|ExpressionContract $field, ?string $alias = null): static
     {
+        if ($field instanceof ExpressionContract) {
+            if ($alias !== null && $alias !== '') {
+                throw new InvalidArgumentException('Write the alias of a raw facet inside it, right after the field.');
+            }
+
+            $field = (string) $field->getValue($this->grammar);
+        } elseif (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/', $field)) {
+            throw new InvalidArgumentException("Invalid facet field [{$field}]. Pass DB::raw() for a facet expression.");
+        }
+
+        if ($alias !== null && $alias !== '' && ! preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $alias)) {
+            throw new InvalidArgumentException("Invalid facet alias [{$alias}].");
+        }
+
         $this->options['__facets'][] = $alias ? "{$field} AS {$alias}" : $field;
 
         return $this;
@@ -750,7 +775,7 @@ class ManticoreQueryBuilder extends Builder
      */
     public function count($columns = '*')
     {
-        return $this->hasLeftJoin() && $columns === '*' ? $this->get()->count() : parent::count($columns);
+        return $this->hasLeftJoin() && $columns === '*' ? $this->everyRow(clone $this)->get()->count() : parent::count($columns);
     }
 
     /**
@@ -768,9 +793,33 @@ class ManticoreQueryBuilder extends Builder
             return parent::runPaginationCountQuery($columns);
         }
 
-        $rows = $this->cloneWithout(['limit', 'offset'])->get();
+        $rows = $this->everyRow($this->cloneWithout(['limit', 'offset']))->get();
 
         return [(object) ['aggregate' => $rows->count()]];
+    }
+
+    /**
+     * The total paginate() shows. A max_matches set by hand caps the rows a select returns, but
+     * not COUNT(*), so the total is capped too. Otherwise the last pages would come back empty.
+     *
+     * @param  array  $columns
+     * @return int
+     */
+    public function getCountForPagination($columns = ['*'])
+    {
+        $total = parent::getCountForPagination($columns);
+        $cap = $this->options['max_matches'] ?? null;
+
+        return is_int($cap) || (is_string($cap) && ctype_digit($cap)) ? min($total, (int) $cap) : $total;
+    }
+
+    /**
+     * A query that counts rows one by one reads all of them, so the default_limit of the
+     * connection, meant for the rows a caller reads, must not cut it short.
+     */
+    protected function everyRow(self $query): self
+    {
+        return $query->limit === null ? $query->limit(ManticoreQueryGrammar::UNLIMITED) : $query;
     }
 
     /**

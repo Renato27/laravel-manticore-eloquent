@@ -243,6 +243,19 @@ it('registers the connection, the driver and the published config', function () 
         ->and(array_keys($paths)[0])->toEndWith('/config/manticore-eloquent.php');
 });
 
+it('caps a query without a limit at the default_limit of the package config', function () {
+    config(['manticore-eloquent.default_limit' => '25', 'database.connections.manticore' => null]);
+    (new ManticoreEloquentServiceProvider(app()))->boot();
+    DB::purge('manticore');
+
+    try {
+        expect(DB::connection('manticore')->table('docs')->toSql())->toBe('select * from `docs` limit 25');
+    } finally {
+        config(['database.connections.manticore.default_limit' => null]);
+        DB::purge('manticore');
+    }
+});
+
 it('does not send anything but a single table to DESC', function () {
     $connection = DB::connection('manticore');
 
