@@ -290,6 +290,8 @@ class ManticoreQueryBuilder extends Builder
         foreach ($row as $column => $value) {
             if ($value === null) {
                 $row[$column] = $this->emptyValue($column);
+            } elseif ((is_array($value) || is_string($value)) && $this->columnType($column) === 'float_vector_array') {
+                $row[$column] = VectorArray::literal($value, $column);
             } elseif (is_array($value) || (is_string($value) && $this->isListColumn($column))) {
                 $row[$column] = $this->isListColumn($column) ? $this->formatTuple($value, $this->columnType($column)) : $value;
             } else {
@@ -352,6 +354,7 @@ class ManticoreQueryBuilder extends Builder
             'uint', 'bigint', 'float', 'bool', 'timestamp' => 0,
             'string', 'text', 'json' => '',
             'mva', 'mva64', 'float_vector' => new Expression('()'),
+            'float_vector_array' => new Expression('[]'),
             default => null,
         };
     }
@@ -469,7 +472,9 @@ class ManticoreQueryBuilder extends Builder
      * Manticore needs the query vector as bare float literals inside the tuple — PDO would
      * quote bound parameters as strings, which the parser rejects — so the values are cast
      * to float and inlined (injection-safe by construction).
-     * Pass a document id instead of a vector to find documents similar to that one.
+     * Pass a document id instead of a vector to find documents similar to that one, which are
+     * returned without it. Manticore itself only leaves it out when the select lists id, as
+     * ServerLimitsTest shows, so a numeric id adds `id != ?`.
      * Pair it with selectRaw('knn_dist() as distance') to read the similarity score.
      * Manticore has no KNN by UUID, so with a UUID id the select reads that document's vector
      * first and searches with it, leaving the document out of the results. toSql() shows the id.
@@ -479,6 +484,10 @@ class ManticoreQueryBuilder extends Builder
      */
     public function knn(string $column, array|int|string $vector, int $k = 10, int|array|null $ef = null, string $boolean = 'and'): static
     {
+        if (! is_array($vector) && $this->columnType($column) === 'float_vector_array') {
+            throw new LogicException("Manticore cannot run knn() by document id on the float_vector_array column [{$column}], as ServerLimitsTest shows. Pass one of the document's vectors instead.");
+        }
+
         $this->wheres[] = [
             'type' => 'Knn',
             'column' => $column,
@@ -489,6 +498,34 @@ class ManticoreQueryBuilder extends Builder
             'options' => is_int($ef) ? ['ef' => $ef] : (array) $ef,
             'boolean' => $boolean,
         ];
+
+        if (! is_array($vector) && is_int($id = DocumentId::normalize($vector))) {
+            $this->where('id', '!=', $id);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Add a KNN search by text: knn(column, k, 'text' [, ef]). Manticore turns the text into a
+     * vector with the model of the column, so the column needs auto-embeddings (model_name).
+     * The text is bound, unlike knn(), where a string is a document id.
+     *
+     * @see https://manual.manticoresearch.com/Searching/KNN
+     *
+     * @param  int|array<string, mixed>|null  $ef
+     */
+    public function knnText(string $column, string $text, int $k = 10, int|array|null $ef = null, string $boolean = 'and'): static
+    {
+        $this->wheres[] = [
+            'type' => 'KnnText',
+            'column' => $column,
+            'k' => $k,
+            'options' => is_int($ef) ? ['ef' => $ef] : (array) $ef,
+            'boolean' => $boolean,
+        ];
+
+        $this->addBinding($text, 'where');
 
         return $this;
     }
@@ -581,7 +618,9 @@ class ManticoreQueryBuilder extends Builder
      * the document is kept. Unlike UPDATE it can change full-text fields. Needs Manticore
      * Buddy and every field stored; it filters by id only. On an id that does not exist
      * it creates a document holding just the given fields. Buddy only takes numeric ids, so
-     * when the server rejects a UUID the merge is done here instead, which is not atomic.
+     * when the server rejects a UUID the merge is done here instead, which is not atomic. So is
+     * a table with an auto-embeddings column, whatever its id: Buddy's partial replace keeps the
+     * old vector, while a whole REPLACE without that column has the server embed the new text.
      *
      * @param  array<string, mixed>  $values
      *
@@ -598,6 +637,10 @@ class ManticoreQueryBuilder extends Builder
         $this->applyBeforeQueryCallbacks();
 
         $values = $this->castRow($values);
+
+        if ($this->hasAutoEmbeddedColumns()) {
+            return $this->replaceMergingDocument($id, $values);
+        }
 
         $bindings = $this->cleanBindings($values);
         $bindings[] = $id;
@@ -625,7 +668,7 @@ class ManticoreQueryBuilder extends Builder
      *
      * @throws RuntimeException
      */
-    protected function replaceMergingDocument(string $id, array $values): bool
+    protected function replaceMergingDocument(int|string $id, array $values): bool
     {
         $table = $this->connection->getTablePrefix().$this->from;
 
@@ -647,6 +690,21 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
+     * Whether the server fills a vector column of the table. Only a table with a vector column
+     * pays for the SHOW CREATE TABLE.
+     */
+    protected function hasAutoEmbeddedColumns(): bool
+    {
+        if (! is_string($this->from)) {
+            return false;
+        }
+
+        $vectors = array_intersect($this->connection->columnTypes($this->from), ['float_vector', 'float_vector_array']);
+
+        return $vectors !== [] && $this->autoEmbeddedColumns($this->connection->getTablePrefix().$this->from) !== [];
+    }
+
+    /**
      * Vector columns the server fills from another field. They must stay out of a REPLACE,
      * since Manticore refuses a value for them and regenerates them from the new text.
      *
@@ -657,7 +715,7 @@ class ManticoreQueryBuilder extends Builder
         $definition = (array) ($this->connection->select('SHOW CREATE TABLE '.$table)[0] ?? []);
 
         preg_match_all(
-            '/^\s*`?(\w+)`?\s+float_vector\b.*\bmodel_name\s*=/im',
+            '/^\s*`?(\w+)`?\s+float_vector(?:_array)?\b.*\bmodel_name\s*=/im',
             $definition['Create Table'] ?? '',
             $matches
         );

@@ -75,24 +75,42 @@ class ManticoreQueryGrammar extends MySqlGrammar
                 : (string) (int) $where['vector'];
         }
 
-        $sql = 'knn('.$column.', '.(int) $where['k'].', '.$target;
+        return 'knn('.$column.', '.(int) $where['k'].', '.$target.$this->compileKnnOptions($where).')';
+    }
 
+    /**
+     * A KNN search by text, bound, which the server embeds with the model of the column.
+     *
+     * @param  array<string, mixed>  $where
+     */
+    protected function whereKnnText(Builder $query, $where): string
+    {
+        return 'knn('.$this->wrap($where['column']).', '.(int) $where['k'].', ?'.$this->compileKnnOptions($where).')';
+    }
+
+    /**
+     * The trailing {ef=…, …} of a knn(), or nothing when it sets no option.
+     *
+     * @param  array<string, mixed>  $where
+     */
+    protected function compileKnnOptions(array $where): string
+    {
         $options = array_filter(
             $where['options'] ?? [],
             static fn ($value) => $value !== null
         );
 
-        if ($options !== []) {
-            $pairs = [];
-
-            foreach ($options as $key => $value) {
-                $pairs[] = $this->validateOptionKey($key).'='.$this->formatOptionValue($value);
-            }
-
-            $sql .= ', {'.implode(', ', $pairs).'}';
+        if ($options === []) {
+            return '';
         }
 
-        return $sql.')';
+        $pairs = [];
+
+        foreach ($options as $key => $value) {
+            $pairs[] = $this->validateOptionKey($key).'='.$this->formatOptionValue($value);
+        }
+
+        return ', {'.implode(', ', $pairs).'}';
     }
 
     /**

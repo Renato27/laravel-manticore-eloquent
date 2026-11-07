@@ -56,6 +56,8 @@ changes it.
 | `count()` on a left join, `paginate()` on a grouped query | Counting the rows | Reads them all | `ServerLimitsTest` |
 | A date in a `timestamp` column | A Unix integer | | [`timestamp`](https://manual.manticoresearch.com/Creating_a_table/Data_types) |
 | `lock()`, `lockForUpdate()` | Nothing | | `ServerLimitsTest`: `FOR UPDATE` is rejected |
+| `knn('embedding', 42)` | `knn(embedding, k, 42) and id != 42` | | `ServerLimitsTest`: without `id` in the select, the source document comes back |
+| `replaceWhereId()` on a table with an auto-embeddings column | A whole `replace` without that column | Not atomic | `AutoEmbeddingsTest`: a partial `REPLACE` keeps the old vector |
 
 ## Refused with a clear error
 
@@ -68,6 +70,8 @@ changes it.
 | A Blueprint type with no equivalent, such as `binary` or `geometry` | `LogicException` naming the column | [Data types](https://manual.manticoresearch.com/Creating_a_table/Data_types) | Base64 in a `text` or `string` column, as the manual suggests |
 | `change()` to anything but `bigInteger` | `LogicException` | [Only `int` to `bigint`](https://manual.manticoresearch.com/Updating_table_schema_and_settings) | Create a new table and reindex |
 | A qualified name or JSON path with anything but plain names | `InvalidArgumentException` | They go out unquoted | |
+| `knn()` by document id on a `floatVectorArray` column | `LogicException` | `ServerLimitsTest`: the server fails on it, and the manual does not cover it | Pass one of the document's vectors |
+| A flat list such as `[0.1, 0.2]` in a `floatVectorArray` column | `InvalidArgumentException` naming the column | [A value is always an array of vectors](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array) | `[[0.1, 0.2]]` |
 
 ## Fails with the server's error, or behaves as the server does
 
@@ -89,7 +93,9 @@ changes it.
 | `limit()` or `orderBy()` in `update()` or `delete()`, and so `MassPrunable` | [`UPDATE` syntax](https://manual.manticoresearch.com/Data_creation_and_modification/Updating_documents/UPDATE), and `ServerLimitsTest` | Filter by what should change. Use `Prunable` |
 | `update()` of a `text` field | [Use `REPLACE`](https://manual.manticoresearch.com/Data_creation_and_modification/Updating_documents/UPDATE) | `replace()` or `replaceWhereId()` |
 | An out-of-range number | [Trimmed to its lower 32 bits](https://manual.manticoresearch.com/Data_creation_and_modification/Updating_documents/UPDATE), without an error, so `-1` reads as `4294967295` | A `bigInteger` column |
-| `$table->vector()` | Laravel refuses it on this driver | `floatVector()` |
+| `$table->vector()` | Laravel refuses it on this driver | `floatVector()`, or `floatVectorArray()` for several vectors per document |
+| `where()`, `whereNull()` or `orderBy()` on a `floatVectorArray` column | [It cannot be used in regular filters or sorting](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array) | `knn()` |
+| `update()` of a `floatVectorArray` column with KNN | [Use `REPLACE`, as with a KNN-indexed `float_vector`](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array) | `replace()`, or a column with `knnType: null` |
 | `renameColumn()` | [`ALTER` adds, drops and widens](https://manual.manticoresearch.com/Updating_table_schema_and_settings), and `ServerLimitsTest` | Create a new table and reindex |
 
 The alias form the manual gives for filtering on an expression works through `selectRaw()`:

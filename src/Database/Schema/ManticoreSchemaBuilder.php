@@ -144,7 +144,7 @@ class ManticoreSchemaBuilder extends Builder
                 $fullText[] = $row->Field;
             }
 
-            if ($row->Type === 'float_vector' && str_contains($row->Properties, 'knn')) {
+            if (in_array($row->Type, ['float_vector', 'float_vector_array'], true) && str_contains($row->Properties, 'knn')) {
                 $indexes[] = [
                     'name' => $row->Field.'_knn',
                     'columns' => [$row->Field],

@@ -11,7 +11,7 @@
 Use **Eloquent natively on Manticore Search**. This package registers Manticore as a
 first-class Laravel database connection over the **MySQL protocol** (port `9306`), so
 `where`, `find`, `create`, `update`, `delete`, `paginate`, `chunk`, scopes, casts, relations
-and migrations work the way you already write them, plus Manticore helpers (`match`, `matchText`, `knn`,
+and migrations work the way you already write them, plus Manticore helpers (`match`, `matchText`, `knn`, `knnText`,
 `highlight`, `option`, `maxMatches`, `facet`, `replace`).
 
 Manticore speaks the MySQL wire protocol, and all of Eloquent is built on a `Connection` +
@@ -111,7 +111,7 @@ each limit.
 |---|---|
 | [Querying](docs/querying.md) | Full-text `match` and `matchText`, `option`, `maxMatches`, `facet`, `highlight`, JSON |
 | [Writing documents](docs/writing-documents.md) | `update` vs `replace`, partial `replaceWhereId`, multi-value attributes |
-| [Vector search](docs/vector-search.md) | `knn`, "more like this document", `VectorCast` |
+| [Vector search](docs/vector-search.md) | `knn`, "more like this document", `knnText` on auto embeddings, `VectorCast`, several vectors per document |
 | [UUID document ids](docs/uuid-document-ids.md) | The same primary key in your database and in Manticore |
 | [Migrations](docs/migrations.md) | Column types, vector columns, table options |
 | [Compatibility](docs/compatibility.md) | What works, what is translated and what fails |

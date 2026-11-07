@@ -2,7 +2,7 @@
 
 Manticore real-time indexes are created with standard Laravel migrations. The schema
 grammar maps Laravel column types to Manticore types and adds helpers for Manticore-only
-types (`mva`, `mva64`, `floatVector`).
+types (`mva`, `mva64`, `floatVector`, `floatVectorArray`).
 
 ```php
 use Illuminate\Database\Migrations\Migration;
@@ -59,6 +59,7 @@ To use UUIDs as document ids, declare the id with `$table->uuid('id')`. See
 | `mva` | `multi` |
 | `mva64` | `multi64` |
 | `floatVector` | `float_vector` |
+| `floatVectorArray` | `float_vector_array` |
 | `uuid` (only on `id`) | `uuid` |
 
 A `timestamp` column holds a Unix integer. See [Known limits](known-limits.md) for what that
@@ -88,4 +89,14 @@ $table->floatVector('content_vector', dims: 768, similarity: 'cosine', knnOption
     'quantization' => '8bit',
 ]);
 // → `content_vector` float_vector knn_type='hnsw' knn_dims='768' hnsw_similarity='cosine' hnsw_m='16' hnsw_ef_construction='200' quantization='8bit'
+```
+
+`floatVectorArray()` takes the same arguments, for a column of
+[several vectors per document](vector-search.md#several-vectors-per-document) on Manticore 29.9.0
+or later. With `knnType: null` the vectors are stored but not searchable, so the column takes no
+options and `update()` works on it:
+
+```php
+$table->floatVectorArray('chunks', dims: 3);       // → `chunks` float_vector_array knn_type='hnsw' knn_dims='3' hnsw_similarity='L2'
+$table->floatVectorArray('frames', knnType: null); // → `frames` float_vector_array
 ```

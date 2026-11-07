@@ -219,6 +219,44 @@ it('returns no more joined rows than the documents of the left table, or 1000, w
         ->and((int) $meta['total_found'])->toBe(100 * 11 + 1);
 });
 
+it('fails knn() by document id on a float_vector_array, which the manual does not cover', function () {
+    if (! supportsFloatVectorArray()) {
+        $this->markTestSkipped('float_vector_array needs Manticore 29.9.0 or later.');
+    }
+
+    // The manual's "Find similar docs by id" names no column type, and its float_vector_array
+    // sections never mention it. Buddy reads the document's vectors and builds a query it cannot parse.
+    $db = DB::connection('manticore');
+    $db->statement('DROP TABLE IF EXISTS limits_vectors');
+    $db->statement("CREATE TABLE limits_vectors (v float_vector_array knn_type='hnsw' knn_dims='2' hnsw_similarity='l2')");
+
+    try {
+        $db->statement('INSERT INTO limits_vectors (id, v) VALUES (1, [[1,0],[0,1]]), (2, [[1,1]])');
+
+        expect(fn () => $db->select('SELECT id FROM limits_vectors WHERE knn(v, 5, 1)'))->toThrow(QueryException::class)
+            ->and($db->select('SELECT id FROM limits_vectors WHERE knn(v, 5, (1,0))'))->toHaveCount(2);
+    } finally {
+        $db->statement('DROP TABLE IF EXISTS limits_vectors');
+    }
+});
+
+it('leaves the document out of knn() by its id only when the select lists id, which the manual does not cover', function () {
+    // The manual's "Find similar docs by id" example selects id and shows no source document, but
+    // never says it is left out. Without id in the select it comes back first, at distance 0.
+    $db = DB::connection('manticore');
+    $db->statement('DROP TABLE IF EXISTS limits_vectors');
+    $db->statement("CREATE TABLE limits_vectors (name string, v float_vector knn_type='hnsw' knn_dims='2' hnsw_similarity='l2')");
+
+    try {
+        $db->statement("INSERT INTO limits_vectors (id, name, v) VALUES (1, 'a', (0,0)), (2, 'b', (0,1)), (3, 'c', (5,5))");
+
+        expect(array_column($db->select('SELECT id, name FROM limits_vectors WHERE knn(v, 5, 1)'), 'name'))->toBe(['b', 'c'])
+            ->and(array_column($db->select('SELECT name FROM limits_vectors WHERE knn(v, 5, 1)'), 'name'))->toBe(['a', 'b', 'c']);
+    } finally {
+        $db->statement('DROP TABLE IF EXISTS limits_vectors');
+    }
+});
+
 it('takes a quoted number in these forms, so the rule is not that it rejects them', function () {
     $db = DB::connection('manticore');
 
