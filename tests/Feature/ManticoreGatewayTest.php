@@ -134,6 +134,22 @@ it('compiles the floatVectorArray macro with knn, and without it to a bare type'
     expect($sql)->toBe("create table `docs_rt` (`chunks` float_vector_array knn_type='hnsw' knn_dims='384' hnsw_similarity='L2', `stored` float_vector_array)");
 });
 
+it('refuses a similarity on the floatVectorArray macro without knn, rather than dropping it', function () {
+    expect(fn () => manticoreBootedSchemaSql('docs_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->floatVectorArray('frames', knnType: null, similarity: 'cosine');
+    }))->toThrow(InvalidArgumentException::class, 'Column [frames] has no knnType');
+});
+
+it('keeps the similarity given to the floatVectorArray macro', function () {
+    $sql = manticoreBootedSchemaSql('docs_rt', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->floatVectorArray('chunks', dims: 2, similarity: 'cosine');
+    })[0];
+
+    expect($sql)->toBe("create table `docs_rt` (`chunks` float_vector_array knn_type='hnsw' knn_dims='2' hnsw_similarity='cosine')");
+});
+
 it('merges options passed through manticoreOptions()', function () {
     $sql = manticoreBootedSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();

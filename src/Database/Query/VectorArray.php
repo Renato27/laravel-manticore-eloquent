@@ -25,7 +25,7 @@ final class VectorArray
     {
         $vectors = is_string($value) ? self::parse($value) : $value;
 
-        if ($vectors === null || array_filter($vectors, static fn ($vector) => ! is_array($vector)) !== []) {
+        if ($vectors === null || array_filter($vectors, static fn ($vector) => ! self::isFlatList($vector)) !== []) {
             throw new InvalidArgumentException("Column [{$column}] is of type float_vector_array, so it takes a list of vectors, such as [[0.1, 0.2], [0.3, 0.4]].");
         }
 
@@ -33,6 +33,32 @@ final class VectorArray
             static fn (array $vector) => '['.implode(', ', array_map(static fn ($component) => var_export((float) $component, true), $vector)).']',
             $vectors
         )).']');
+    }
+
+    /**
+     * Whether a value is an array of scalars, as a vector or a multi-value attribute is. A nested
+     * array or object would be cast to 1, so it is not one.
+     */
+    public static function isFlatList(mixed $value): bool
+    {
+        return is_array($value) && array_filter($value, static fn ($part) => is_array($part) || is_object($part)) === [];
+    }
+
+    /**
+     * The list, when it is a flat one.
+     *
+     * @param  array<int|string, mixed>  $list
+     * @return array<int|string, mixed>
+     *
+     * @throws InvalidArgumentException
+     */
+    public static function requireFlatList(array $list, string $column): array
+    {
+        if (! self::isFlatList($list)) {
+            throw new InvalidArgumentException("Column [{$column}] takes a list of numbers, such as [0.1, 0.2], not a list inside it.");
+        }
+
+        return $list;
     }
 
     /**

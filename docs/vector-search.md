@@ -132,6 +132,7 @@ What differs from a `floatVector`:
   value all vectors have the same width, as
   [the manual](https://manual.manticoresearch.com/Creating_a_table/Data_types#Float-vector-array)
   says. A flat list such as `[0.1, 0.2]` throws an `InvalidArgumentException`, since it cannot be split
-  into vectors, and so does a JSON object such as `{"embedding": [0.1, 0.2]}`, whose keys would be lost.
+  into vectors, and so does a JSON object such as `{"embedding": [0.1, 0.2]}`, whose keys would be lost,
+  or a vector inside a vector, such as `[[[0.1, 0.2], 0.3]]`.
 - **A column without KNN takes `update()`.** On a KNN column, rewrite the row with `replace()`, as
   above.

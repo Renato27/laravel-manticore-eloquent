@@ -114,8 +114,9 @@ class ManticoreEloquentServiceProvider extends ServiceProvider
         }
 
         if (! Blueprint::hasMacro('floatVectorArray')) {
-            Blueprint::macro('floatVectorArray', function (string $column, ?int $dims = null, ?string $knnType = 'hnsw', string $similarity = 'L2', array $knnOptions = []) {
-                $similarity = $knnType === null ? null : $similarity;
+            // The L2 default goes only to an indexed column, so a similarity given without knn reaches the grammar, which refuses it.
+            Blueprint::macro('floatVectorArray', function (string $column, ?int $dims = null, ?string $knnType = 'hnsw', ?string $similarity = null, array $knnOptions = []) {
+                $similarity ??= $knnType === null ? null : 'L2';
 
                 return $this->addColumn('floatVectorArray', $column, compact('dims', 'knnType', 'similarity', 'knnOptions'));
             });

@@ -245,6 +245,27 @@ it('runs knn() by a numeric string document id', function () {
     }
 });
 
+it('writes one row whose first value is a vector or a multi-value attribute', function () {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->floatVector('embedding', 2);
+        $table->mva('tag_ids');
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
+        $table()->insert(['embedding' => [0.5, 0.25], 'tag_ids' => [3, 1], 'id' => 1]);
+        $table()->replace(['tag_ids' => [2], 'embedding' => [1, 0], 'id' => 2]);
+
+        expect($table()->orderBy('id')->get(['id', 'embedding', 'tag_ids'])->map(fn ($row) => (array) $row)->all())->toBe([
+            ['id' => 1, 'embedding' => '0.500000,0.250000', 'tag_ids' => '1,3'],
+            ['id' => 2, 'embedding' => '1.000000,0.000000', 'tag_ids' => '2'],
+        ]);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+});
+
 it('returns a HIGHLIGHT() column for matched documents', function () {
     IntegrationArticle::create(['id' => 1, 'title' => 'Laravel meets Manticore', 'views' => 1, 'published' => true]);
 

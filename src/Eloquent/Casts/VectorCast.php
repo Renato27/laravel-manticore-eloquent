@@ -5,6 +5,7 @@ namespace ManticoreEloquent\Eloquent\Casts;
 use Illuminate\Contracts\Database\Eloquent\CastsAttributes;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Query\Expression;
+use ManticoreEloquent\Database\Query\VectorArray;
 
 class VectorCast implements CastsAttributes
 {
@@ -39,7 +40,7 @@ class VectorCast implements CastsAttributes
 
         return new Expression('('.implode(', ', array_map(
             static fn ($component) => var_export((float) $component, true),
-            $value
+            VectorArray::requireFlatList($value, $key)
         )).')');
     }
 }

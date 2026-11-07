@@ -171,6 +171,11 @@ it('compiles a knn() predicate with inlined float literals', function () {
     expect($q->getBindings())->toBe([]); // vector is inlined, not bound
 });
 
+it('refuses a knn() query vector with a list inside it', function () {
+    expect(fn () => manticoreQuery('docs')->knn('embedding', [[1, 2], 3]))
+        ->toThrow(InvalidArgumentException::class, 'Column [embedding] takes a list of numbers');
+});
+
 it('casts integer vector components to float literals', function () {
     expect(manticoreQuery('docs')->knn('embedding', [1, 2], 5)->toSql())
         ->toContain('knn(`embedding`, 5, (1.0, 2.0))');
@@ -1087,6 +1092,7 @@ function listQuery(): ManticoreQueryBuilder
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('columnTypes')->andReturn(['tags' => 'mva', 'big' => 'mva64', 'vec' => 'float_vector', 'name' => 'string']);
     $connection->shouldReceive('update')->andReturnUsing(fn (string $sql) => $sql);
+    $connection->shouldReceive('insert')->andReturnUsing(fn (string $sql) => $sql);
 
     return queryOn($connection);
 }
@@ -1104,6 +1110,34 @@ it('writes a list as a tuple of numbers, so nothing else reaches the SQL', funct
     'a vector' => ['vec', [1, '2.5'], '(1.0, 2.5)'],
     'a vector as it reads back' => ['vec', '0.5,1', '(0.5, 1.0)'],
 ]);
+
+it('refuses a list inside a list, whose parts would be cast to 1', function (string $column) {
+    expect(fn () => listQuery()->where('id', 1)->update([$column => [[1, 2], 3]]))
+        ->toThrow(InvalidArgumentException::class, "Column [{$column}] takes a list of numbers");
+})->with(['a vector' => ['vec'], 'a multi-value attribute' => ['tags']]);
+
+it('inserts one row whose first value is a list', function (array $row, string $sql) {
+    expect(listQuery()->insert($row))->toBe($sql);
+})->with([
+    'a vector first' => [['vec' => [1, 2], 'id' => 1], 'insert into `docs` (`vec`, `id`) values ((1.0, 2.0), ?)'],
+    'a multi-value attribute first' => [['tags' => [1, 2], 'id' => 1], 'insert into `docs` (`tags`, `id`) values ((1, 2), ?)'],
+    'only lists' => [['vec' => [1, 2], 'tags' => [3]], 'insert into `docs` (`vec`, `tags`) values ((1.0, 2.0), (3))'],
+]);
+
+it('inserts a batch whose keys are not 0, 1, 2', function () {
+    expect(listQuery()->insert([3 => ['id' => 1, 'tags' => [1]], 7 => ['id' => 2, 'tags' => [2]]]))
+        ->toBe('insert into `docs` (`id`, `tags`) values (?, (1)), (?, (2))');
+});
+
+it('replaces one row whose first value is a list', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(['vec' => 'float_vector']);
+    $connection->shouldReceive('insert')->once()
+        ->with('replace into `docs` (`vec`, `id`) values ((1.0, 2.0), ?)', [1])->andReturn(true);
+
+    expect(queryOn($connection)->replace(['vec' => [1, 2], 'id' => 1]))->toBeTrue();
+});
 
 it('leaves a list on any other column alone', function () {
     expect(listQuery()->where('id', 1)->update(['name' => [1, 2]]))->toBe('update `docs` set `name` = ? where `id` = ?');
@@ -1199,6 +1233,11 @@ it('inserts a float_vector_array as an array of vectors', function () {
         ->toBe('insert into `docs` (`id`, `chunks`) values (?, [[0.1, 0.2], [0.3, 0.4]])');
 });
 
+it('inserts one row whose first value is a float_vector_array', function () {
+    expect(vectorArrayQuery()->insert(['chunks' => [[0.1, 0.2]], 'id' => 1]))
+        ->toBe('insert into `docs` (`chunks`, `id`) values ([[0.1, 0.2]], ?)');
+});
+
 it('refuses a float_vector_array value that is not an array of vectors', function (mixed $value) {
     expect(fn () => vectorArrayQuery()->where('id', 1)->update(['chunks' => $value]))
         ->toThrow(InvalidArgumentException::class, 'Column [chunks] is of type float_vector_array');
@@ -1209,6 +1248,9 @@ it('refuses a float_vector_array value that is not an array of vectors', functio
     'an injection in a string' => ['[[1]]) or (1=1'],
     'a JSON object, whose keys would be dropped' => ['{"embedding": [1, 2]}'],
     'vectors as JSON objects' => ['[{"x": 1, "y": 2}]'],
+    'a vector as a component, which would be cast to 1.0' => [[[[1, 2], 3]]],
+    'a vector as a component, in a string' => ['[[[1, 2], 3]]'],
+    'a JSON object as a component' => ['[[{"x": 1}, 2]]'],
 ]);
 
 it('refuses knn() by document id on a float_vector_array column', function (int|string $id) {
