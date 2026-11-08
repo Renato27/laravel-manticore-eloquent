@@ -1086,11 +1086,16 @@ it('runs before-query callbacks on replace() and replaceWhereId()', function () 
     expect($ran)->toBe(2);
 });
 
+function listColumns(): array
+{
+    return ['id' => 'bigint', 'tags' => 'mva', 'big' => 'mva64', 'vec' => 'float_vector', 'vecs' => 'float_vector_array', 'name' => 'string'];
+}
+
 function listQuery(): ManticoreQueryBuilder
 {
     $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
-    $connection->shouldReceive('columnTypes')->andReturn(['tags' => 'mva', 'big' => 'mva64', 'vec' => 'float_vector', 'name' => 'string']);
+    $connection->shouldReceive('columnTypes')->andReturn(listColumns());
     $connection->shouldReceive('update')->andReturnUsing(fn (string $sql) => $sql);
     $connection->shouldReceive('insert')->andReturnUsing(fn (string $sql) => $sql);
 
@@ -1145,6 +1150,66 @@ it('inserts a batch keyed by labels, casting the lists in each row', function (a
 it('reads a row whose lists have integer keys as one row', function () {
     expect(listQuery()->insert(['vec' => [2 => 0.5, 5 => 1], 'tags' => [1 => 3]]))
         ->toBe('insert into `docs` (`vec`, `tags`) values ((0.5, 1.0), (3))');
+});
+
+dataset('rows of lists with named keys', [
+    'a vector' => [['vec' => ['x' => 1, 'y' => 2]], '`vec`', '(1.0, 2.0)'],
+    'a vector with some keys named' => [['vec' => [1, 'y' => 2]], '`vec`', '(1.0, 2.0)'],
+    'a multi-value attribute' => [['tags' => ['a' => 1, 'b' => 2]], '`tags`', '(1, 2)'],
+    'a 64-bit multi-value attribute' => [['big' => ['a' => 1]], '`big`', '(1)'],
+    'a vector array' => [['vecs' => ['a' => [1, 2], 'b' => [3, 4]]], '`vecs`', '[[1.0, 2.0], [3.0, 4.0]]'],
+    'several columns' => [['vec' => ['x' => 1], 'tags' => ['a' => 2]], '`vec`, `tags`', '(1.0), (2)'],
+]);
+
+it('inserts one row whose lists have named keys', function (array $row, string $columns, string $values) {
+    expect(listQuery()->insert($row))->toBe("insert into `docs` ({$columns}) values ({$values})");
+})->with('rows of lists with named keys');
+
+it('replaces one row whose lists have named keys', function (array $row, string $columns, string $values) {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(listColumns());
+    $connection->shouldReceive('insert')->once()
+        ->with("replace into `docs` ({$columns}) values ({$values})", [])->andReturn(true);
+
+    expect(queryOn($connection)->replace($row))->toBeTrue();
+})->with('rows of lists with named keys');
+
+it('keeps a batch whose label is the name of a list column', function () {
+    expect(listQuery()->insert(['vec' => ['id' => 1, 'vec' => [1, 2]]]))
+        ->toBe('insert into `docs` (`id`, `vec`) values (?, (1.0, 2.0))');
+});
+
+it('keeps a batch whose rows hold lists with named keys', function () {
+    expect(listQuery()->insert([['id' => 1, 'vec' => ['x' => 1, 'y' => 2]], ['id' => 2, 'vec' => ['x' => 3, 'y' => 4]]]))
+        ->toBe('insert into `docs` (`id`, `vec`) values (?, (1.0, 2.0)), (?, (3.0, 4.0))');
+});
+
+it('upserts one row that opens with a list', function (array $row, ?array $update, string $tuple) {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(listColumns());
+    $connection->shouldReceive('insert')->once()
+        ->with("replace into `docs` (`id`, `vec`) values (?, {$tuple})", [1])->andReturn(true);
+
+    expect(queryOn($connection)->upsert($row, 'id', $update))->toBe(1);
+})->with([
+    'a list, every column by default' => [['vec' => [1, 2], 'id' => 1], null, '(1.0, 2.0)'],
+    'a list, every column named' => [['vec' => [1, 2], 'id' => 1], ['vec', 'id'], '(1.0, 2.0)'],
+    'named keys, every column by default' => [['vec' => ['x' => 3, 'y' => 4], 'id' => 1], null, '(3.0, 4.0)'],
+]);
+
+it('refuses an upsert() that leaves out the vector a row opens with', function () {
+    expect(fn () => listQuery()->upsert(['vec' => [1, 2], 'id' => 1], 'id', ['id']))
+        ->toThrow(LogicException::class, 'Manticore can only run upsert() as a REPLACE');
+});
+
+it('reads an array without column names as a list when the column types are unknown', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('insert')->once()->andReturn(true);
+
+    expect(queryOn($connection)->upsert(['a' => [1, 2], 'b' => [3, 4]], 'id'))->toBe(1);
 });
 
 it('replaces a batch keyed by labels, casting the lists in each row', function () {
