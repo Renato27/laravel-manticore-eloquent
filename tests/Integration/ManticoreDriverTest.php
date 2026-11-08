@@ -315,14 +315,14 @@ it('writes rows whose lists have named keys to those columns', function () {
     }
 });
 
-it('upserts through a model a row that opens with a list', function (array $embedding) {
+it('upserts through a model a list of rows that open with a list', function (array $embedding) {
     Schema::connection('manticore')->dropIfExists('it_vectors_rt');
     Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
         $table->floatVector('embedding', 2);
     });
 
     try {
-        expect(IntegrationVector::upsert(['embedding' => $embedding, 'id' => 7], ['id']))->toBe(1)
+        expect(IntegrationVector::upsert([['embedding' => $embedding, 'id' => 7]], ['id']))->toBe(1)
             ->and(DB::connection('manticore')->table('it_vectors_rt')->where('id', 7)->value('embedding'))->toBe('1.000000,0.000000');
     } finally {
         Schema::connection('manticore')->dropIfExists('it_vectors_rt');
@@ -331,6 +331,10 @@ it('upserts through a model a row that opens with a list', function (array $embe
     'a list' => [[1, 0]],
     'named keys' => [['x' => 1, 'y' => 0]],
 ]);
+
+it('refuses an upsert() through a model of one row that opens with a list, which Laravel reads as rows', function () {
+    IntegrationVector::upsert(['embedding' => [1, 0], 'id' => 7], ['id']);
+})->throws(LogicException::class, 'upsert()');
 
 it('returns a HIGHLIGHT() column for matched documents', function () {
     IntegrationArticle::create(['id' => 1, 'title' => 'Laravel meets Manticore', 'views' => 1, 'published' => true]);

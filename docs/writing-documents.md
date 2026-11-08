@@ -60,3 +60,9 @@ Article::where('tag_ids', 2)->get();      // documents holding 2 among their tag
 
 The Query Builder also takes a list when writing, as in `insert(['tag_ids' => [1, 2]])`, and reads
 it back as the string `'1,2'`.
+
+`insert()`, `replace()` and `upsert()` take one row or a list of rows. An array under a key that
+names a vector or multi-value column, in that column's shape, is that column's value, even when
+its keys are named. So a batch must not label a row with the name of such a column if the row
+could be read as its value: use other labels, or none.
+Through a model, `upsert()` takes a list of rows, as in Laravel.
