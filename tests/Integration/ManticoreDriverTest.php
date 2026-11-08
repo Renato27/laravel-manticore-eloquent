@@ -291,6 +291,51 @@ it('writes a batch keyed by labels, whose rows hold vectors', function () {
     }
 });
 
+it('writes rows whose lists have named keys to those columns', function () {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->floatVector('embedding', 2);
+        $table->mva('tag_ids');
+        $table->floatVectorArray('notes', knnType: null);
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
+        $table()->insert(['embedding' => ['x' => 0.5, 'y' => 0.25], 'tag_ids' => ['a' => 3, 'b' => 1], 'notes' => ['first' => [1, 2]]]);
+        $table()->replace(['embedding' => ['x' => 1, 'y' => 0], 'tag_ids' => ['a' => 2], 'notes' => ['first' => [3, 4], 'second' => [5, 6]]]);
+
+        expect($table()->upsert(['embedding' => ['x' => 0, 'y' => 1], 'tag_ids' => ['a' => 4], 'notes' => ['first' => [7, 8]], 'id' => 99], 'id'))->toBe(1);
+
+        $rows = $table()->orderBy('id')->get(['embedding', 'tag_ids', 'notes'])
+            ->map(fn ($row) => [$row->embedding, $row->tag_ids, json_decode($row->notes)])->all();
+
+        expect($rows)->toEqual([
+            ['0.000000,1.000000', '4', [[7, 8]]],
+            ['0.500000,0.250000', '1,3', [[1, 2]]],
+            ['1.000000,0.000000', '2', [[3, 4], [5, 6]]],
+        ]);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+});
+
+it('upserts through a model a row that opens with a list', function (array $embedding) {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->floatVector('embedding', 2);
+    });
+
+    try {
+        expect(IntegrationVector::upsert(['embedding' => $embedding, 'id' => 7], ['id']))->toBe(1)
+            ->and(DB::connection('manticore')->table('it_vectors_rt')->where('id', 7)->value('embedding'))->toBe('1.000000,0.000000');
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+})->with([
+    'a list' => [[1, 0]],
+    'named keys' => [['x' => 1, 'y' => 0]],
+]);
+
 it('returns a HIGHLIGHT() column for matched documents', function () {
     IntegrationArticle::create(['id' => 1, 'title' => 'Laravel meets Manticore', 'views' => 1, 'published' => true]);
 
