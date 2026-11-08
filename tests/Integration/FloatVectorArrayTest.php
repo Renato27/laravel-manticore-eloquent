@@ -119,6 +119,18 @@ it('updates a column without knn, and clears it with an empty array or a null', 
         ->and(ChunkedArticle::find(2)->notes)->toBe([]);
 });
 
+it('writes a row whose only value is a vector array with named keys', function () {
+    chunkedTable()->insert(['notes' => ['first' => [1, 2]]]);
+    chunkedTable()->replace(['notes' => ['first' => [3, 4], 'second' => [5, 6]]]);
+
+    expect(chunkedTable()->upsert(['notes' => ['first' => [7, 8]], 'id' => 99], 'id'))->toBe(1)
+        ->and(chunkedTable()->orderBy('id')->pluck('notes')->map(fn ($notes) => json_decode($notes))->all())->toEqual([
+            [[7, 8]],
+            [[1, 2]],
+            [[3, 4], [5, 6]],
+        ]);
+});
+
 it('refuses knn() by document id on a float_vector_array', function () {
     ChunkedArticle::create(['id' => 1, 'title' => 'a', 'chunks' => [[1, 0]]]);
 

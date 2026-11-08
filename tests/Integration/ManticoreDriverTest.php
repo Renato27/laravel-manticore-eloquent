@@ -296,23 +296,19 @@ it('writes rows whose lists have named keys to those columns', function () {
     Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
         $table->floatVector('embedding', 2);
         $table->mva('tag_ids');
-        $table->floatVectorArray('notes', knnType: null);
     });
 
     try {
         $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
-        $table()->insert(['embedding' => ['x' => 0.5, 'y' => 0.25], 'tag_ids' => ['a' => 3, 'b' => 1], 'notes' => ['first' => [1, 2]]]);
-        $table()->replace(['embedding' => ['x' => 1, 'y' => 0], 'tag_ids' => ['a' => 2], 'notes' => ['first' => [3, 4], 'second' => [5, 6]]]);
+        $table()->insert(['embedding' => ['x' => 0.5, 'y' => 0.25], 'tag_ids' => ['a' => 3, 'b' => 1]]);
+        $table()->replace(['embedding' => ['x' => 1, 'y' => 0], 'tag_ids' => ['a' => 2]]);
 
-        expect($table()->upsert(['embedding' => ['x' => 0, 'y' => 1], 'tag_ids' => ['a' => 4], 'notes' => ['first' => [7, 8]], 'id' => 99], 'id'))->toBe(1);
+        expect($table()->upsert(['embedding' => ['x' => 0, 'y' => 1], 'tag_ids' => ['a' => 4], 'id' => 99], 'id'))->toBe(1);
 
-        $rows = $table()->orderBy('id')->get(['embedding', 'tag_ids', 'notes'])
-            ->map(fn ($row) => [$row->embedding, $row->tag_ids, json_decode($row->notes)])->all();
-
-        expect($rows)->toEqual([
-            ['0.000000,1.000000', '4', [[7, 8]]],
-            ['0.500000,0.250000', '1,3', [[1, 2]]],
-            ['1.000000,0.000000', '2', [[3, 4], [5, 6]]],
+        expect($table()->orderBy('id')->get(['embedding', 'tag_ids'])->map(fn ($row) => [$row->embedding, $row->tag_ids])->all())->toBe([
+            ['0.000000,1.000000', '4'],
+            ['0.500000,0.250000', '1,3'],
+            ['1.000000,0.000000', '2'],
         ]);
     } finally {
         Schema::connection('manticore')->dropIfExists('it_vectors_rt');
