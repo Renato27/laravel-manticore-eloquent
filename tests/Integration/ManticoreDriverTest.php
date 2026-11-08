@@ -206,6 +206,28 @@ it('runs a knn vector search ordered by distance', function () {
     Schema::connection('manticore')->dropIfExists('it_vectors_rt');
 });
 
+it('leaves the document out of knn() by its id whatever the select lists', function () {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->string('name');
+        $table->floatVector('embedding', 2);
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
+        $table()->insert([
+            ['id' => 1, 'name' => 'a', 'embedding' => [0.0, 0.0]],
+            ['id' => 2, 'name' => 'b', 'embedding' => [0.0, 1.0]],
+            ['id' => 3, 'name' => 'c', 'embedding' => [5.0, 5.0]],
+        ]);
+
+        expect($table()->knn('embedding', 1, 5)->pluck('name')->all())->toBe(['b', 'c'])
+            ->and($table()->knn('embedding', 1, 5)->get()->pluck('name')->all())->toBe(['b', 'c']);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+});
+
 it('runs knn() by a numeric string document id', function () {
     Schema::connection('manticore')->dropIfExists('it_vectors_rt');
     Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
@@ -222,6 +244,97 @@ it('runs knn() by a numeric string document id', function () {
         Schema::connection('manticore')->dropIfExists('it_vectors_rt');
     }
 });
+
+it('writes one row whose first value is a vector or a multi-value attribute', function () {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->floatVector('embedding', 2);
+        $table->mva('tag_ids');
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
+        $table()->insert(['embedding' => [0.5, 0.25], 'tag_ids' => [3, 1], 'id' => 1]);
+        $table()->replace(['tag_ids' => [2], 'embedding' => [1, 0], 'id' => 2]);
+
+        expect($table()->orderBy('id')->get(['id', 'embedding', 'tag_ids'])->map(fn ($row) => (array) $row)->all())->toBe([
+            ['id' => 1, 'embedding' => '0.500000,0.250000', 'tag_ids' => '1,3'],
+            ['id' => 2, 'embedding' => '1.000000,0.000000', 'tag_ids' => '2'],
+        ]);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+});
+
+it('writes a batch keyed by labels, whose rows hold vectors', function () {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->floatVector('embedding', 2);
+        $table->mva('tag_ids');
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
+        $table()->insert(['doc-one' => ['id' => 1, 'embedding' => [0.5, 0.25], 'tag_ids' => [3, 1]]]);
+        $table()->replace([
+            'doc-two' => ['embedding' => [1, 0], 'tag_ids' => [2], 'id' => 2],
+            'doc-three' => ['embedding' => [0, 1], 'tag_ids' => [4], 'id' => 3],
+        ]);
+
+        expect($table()->orderBy('id')->get(['id', 'embedding', 'tag_ids'])->map(fn ($row) => (array) $row)->all())->toBe([
+            ['id' => 1, 'embedding' => '0.500000,0.250000', 'tag_ids' => '1,3'],
+            ['id' => 2, 'embedding' => '1.000000,0.000000', 'tag_ids' => '2'],
+            ['id' => 3, 'embedding' => '0.000000,1.000000', 'tag_ids' => '4'],
+        ]);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+});
+
+it('writes rows whose lists have named keys to those columns', function () {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->floatVector('embedding', 2);
+        $table->mva('tag_ids');
+    });
+
+    try {
+        $table = fn () => DB::connection('manticore')->table('it_vectors_rt');
+        $table()->insert(['embedding' => ['x' => 0.5, 'y' => 0.25], 'tag_ids' => ['a' => 3, 'b' => 1]]);
+        $table()->replace(['embedding' => ['x' => 1, 'y' => 0], 'tag_ids' => ['a' => 2]]);
+
+        expect($table()->upsert(['embedding' => ['x' => 0, 'y' => 1], 'tag_ids' => ['a' => 4], 'id' => 99], 'id'))->toBe(1);
+
+        expect($table()->orderBy('id')->get(['embedding', 'tag_ids'])->map(fn ($row) => [$row->embedding, $row->tag_ids])->all())->toBe([
+            ['0.000000,1.000000', '4'],
+            ['0.500000,0.250000', '1,3'],
+            ['1.000000,0.000000', '2'],
+        ]);
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+});
+
+it('upserts through a model a list of rows that open with a list', function (array $embedding) {
+    Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    Schema::connection('manticore')->create('it_vectors_rt', function (Blueprint $table) {
+        $table->floatVector('embedding', 2);
+    });
+
+    try {
+        expect(IntegrationVector::upsert([['embedding' => $embedding, 'id' => 7]], ['id']))->toBe(1)
+            ->and(DB::connection('manticore')->table('it_vectors_rt')->where('id', 7)->value('embedding'))->toBe('1.000000,0.000000');
+    } finally {
+        Schema::connection('manticore')->dropIfExists('it_vectors_rt');
+    }
+})->with([
+    'a list' => [[1, 0]],
+    'named keys' => [['x' => 1, 'y' => 0]],
+]);
+
+it('refuses an upsert() through a model of one row that opens with a list, which Laravel reads as rows', function () {
+    IntegrationVector::upsert(['embedding' => [1, 0], 'id' => 7], ['id']);
+})->throws(LogicException::class, 'upsert()');
 
 it('returns a HIGHLIGHT() column for matched documents', function () {
     IntegrationArticle::create(['id' => 1, 'title' => 'Laravel meets Manticore', 'views' => 1, 'published' => true]);

@@ -27,6 +27,7 @@ src/
     ├── Query/
     │   ├── ManticoreQueryBuilder.php      — match/knn/highlight/option/maxMatches/facet/replace
     │   ├── DocumentId.php                 — validates integer and UUID document ids
+    │   ├── VectorArray.php                — float_vector_array literals, [[…], […]]
     │   ├── Grammars/ManticoreQueryGrammar.php  — MATCH(?), knn(), HIGHLIGHT(), OPTION, FACET, REPLACE, no lock
     │   └── Processors/ManticoreProcessor.php
     └── Schema/
@@ -52,6 +53,8 @@ already Manticore, so `Model::where(...)`, `create(...)`, etc. go straight there
 |---|---|---|
 | Full-text | `MATCH ... AGAINST` | `MATCH('expr')` as a single predicate, bound parameter |
 | Vector search | — | `knn(col, k, (vector) [, ef])` predicate via `knn()` (floats inlined) |
+| Vector search by text | — | `knn(col, k, ? [, ef])` via `knnText()`, the text bound for the server to embed |
+| Several vectors per document | — | a `float_vector_array` value as an inlined `[[…], […]]` literal, which the server takes in no quoted form |
 | Highlighting | — | `HIGHLIGHT([opts][, field])` select column via `highlight()` |
 | Tuning | — | `OPTION k=v, …` clause (with automatic `max_matches` on deep paging) |
 | No `LIMIT` | every row | 20 rows, so the grammar asks for all of them |
@@ -90,9 +93,12 @@ date without a value reads as `null`. [Compatibility](compatibility.md) has the 
   and `withCount()` do not work. See [Compatibility](compatibility.md).
 - `replaceWhereId()` and `knn()` by document id go through Manticore Buddy, which only takes
   numeric ids, so the builder handles UUIDs itself. `replaceWhereId()` tries the native
-  statement, then falls back to read, merge and full `REPLACE`, which is not atomic. `knn()`
-  reads the document's vector when the select runs. Its compiled form keeps the UUID unquoted
-  because a quoted string there means text to embed and can return wrong rows silently.
+  statement, then falls back to read, merge and full `REPLACE`, which is not atomic. A table with
+  an auto-embeddings column goes straight to that merge, leaving the column out, since the native
+  statement keeps the old vector. `knn()` reads the document's vector when the select runs. Its
+  compiled form keeps the UUID unquoted because a quoted string there means text to embed and can
+  return wrong rows silently. By a numeric id it adds `id != ?`, since the server only leaves the
+  source document out when the select lists `id`.
 - `ManticoreSchemaBuilder` covers the common cases (create/add/drop/hasTable/columns);
   advanced operations (column rename, secondary indexes) may need `DB::statement`.
 

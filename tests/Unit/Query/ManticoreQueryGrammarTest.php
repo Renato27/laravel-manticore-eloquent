@@ -171,6 +171,11 @@ it('compiles a knn() predicate with inlined float literals', function () {
     expect($q->getBindings())->toBe([]); // vector is inlined, not bound
 });
 
+it('refuses a knn() query vector with a list inside it', function () {
+    expect(fn () => manticoreQuery('docs')->knn('embedding', [[1, 2], 3]))
+        ->toThrow(InvalidArgumentException::class, 'Column [embedding] takes a list of numbers');
+});
+
 it('casts integer vector components to float literals', function () {
     expect(manticoreQuery('docs')->knn('embedding', [1, 2], 5)->toSql())
         ->toContain('knn(`embedding`, 5, (1.0, 2.0))');
@@ -339,8 +344,8 @@ it('treats an empty replace() as a no-op', function () {
 it('compiles a knn() predicate against a document id', function () {
     $q = manticoreQuery('docs')->knn('embedding', 123, 5);
 
-    expect($q->toSql())->toContain('where knn(embedding, 5, 123)');
-    expect($q->getBindings())->toBe([]);
+    expect($q->toSql())->toContain('where knn(embedding, 5, 123) and `id` != ?');
+    expect($q->getBindings())->toBe([123]);
 });
 
 it('adds the ef argument to a document-id knn()', function () {
@@ -575,10 +580,7 @@ it('leaves an auto-embeddings column out of the emulated partial replace, so it 
     $connection->shouldReceive('getName')->andReturn('manticore');
     $connection->shouldReceive('columnTypes')->with('articles')
         ->andReturn(['id' => 'uuid', 'title' => 'text', 'tag' => 'string', 'vec' => 'float_vector', 'other' => 'float_vector']);
-    $connection->shouldReceive('insert')
-        ->once()
-        ->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])
-        ->andThrow(new QueryException('manticore', 'replace into', [], new Exception("unexpected SET, expecting VALUES near 'SET'")));
+    $connection->shouldReceive('insert')->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])->never();
     $connection->shouldReceive('select')->with('DESC articles')->andReturn([
         (object) ['Field' => 'id', 'Type' => 'uuid', 'Properties' => ''],
         (object) ['Field' => 'title', 'Type' => 'text', 'Properties' => 'indexed stored'],
@@ -655,7 +657,7 @@ it('leaves knn() by a numeric string id to the server, without reading the vecto
     $connection->shouldReceive('getTablePrefix')->andReturn('');
     $connection->shouldReceive('select')
         ->once()
-        ->withArgs(fn (string $sql) => $sql === unlimited('select * from `docs` where knn(embedding, 10, 42)'))
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === unlimited('select * from `docs` where knn(embedding, 10, 42) and `id` != ?') && $bindings === [42])
         ->andReturn([]);
 
     (new ManticoreQueryBuilder(
@@ -1084,12 +1086,18 @@ it('runs before-query callbacks on replace() and replaceWhereId()', function () 
     expect($ran)->toBe(2);
 });
 
+function listColumns(): array
+{
+    return ['id' => 'bigint', 'tags' => 'mva', 'big' => 'mva64', 'vec' => 'float_vector', 'vecs' => 'float_vector_array', 'name' => 'string'];
+}
+
 function listQuery(): ManticoreQueryBuilder
 {
     $connection = mockManticoreConnection();
     $connection->shouldReceive('getTablePrefix')->andReturn('');
-    $connection->shouldReceive('columnTypes')->andReturn(['tags' => 'mva', 'big' => 'mva64', 'vec' => 'float_vector', 'name' => 'string']);
+    $connection->shouldReceive('columnTypes')->andReturn(listColumns());
     $connection->shouldReceive('update')->andReturnUsing(fn (string $sql) => $sql);
+    $connection->shouldReceive('insert')->andReturnUsing(fn (string $sql) => $sql);
 
     return queryOn($connection);
 }
@@ -1107,6 +1115,133 @@ it('writes a list as a tuple of numbers, so nothing else reaches the SQL', funct
     'a vector' => ['vec', [1, '2.5'], '(1.0, 2.5)'],
     'a vector as it reads back' => ['vec', '0.5,1', '(0.5, 1.0)'],
 ]);
+
+it('refuses a list inside a list, whose parts would be cast to 1', function (string $column) {
+    expect(fn () => listQuery()->where('id', 1)->update([$column => [[1, 2], 3]]))
+        ->toThrow(InvalidArgumentException::class, "Column [{$column}] takes a list of numbers");
+})->with(['a vector' => ['vec'], 'a multi-value attribute' => ['tags']]);
+
+it('inserts one row whose first value is a list', function (array $row, string $sql) {
+    expect(listQuery()->insert($row))->toBe($sql);
+})->with([
+    'a vector first' => [['vec' => [1, 2], 'id' => 1], 'insert into `docs` (`vec`, `id`) values ((1.0, 2.0), ?)'],
+    'a multi-value attribute first' => [['tags' => [1, 2], 'id' => 1], 'insert into `docs` (`tags`, `id`) values ((1, 2), ?)'],
+    'only lists' => [['vec' => [1, 2], 'tags' => [3]], 'insert into `docs` (`vec`, `tags`) values ((1.0, 2.0), (3))'],
+]);
+
+it('inserts a batch whose keys are not 0, 1, 2', function () {
+    expect(listQuery()->insert([3 => ['id' => 1, 'tags' => [1]], 7 => ['id' => 2, 'tags' => [2]]]))
+        ->toBe('insert into `docs` (`id`, `tags`) values (?, (1)), (?, (2))');
+});
+
+it('inserts a batch keyed by labels, casting the lists in each row', function (array $batch, string $sql) {
+    expect(listQuery()->insert($batch))->toBe($sql);
+})->with([
+    'a vector in a labeled row' => [
+        ['doc-one' => ['id' => 1, 'vec' => [1, 2]]],
+        'insert into `docs` (`id`, `vec`) values (?, (1.0, 2.0))',
+    ],
+    'UUID keys, rows that open with a list' => [
+        ['0b4f5c1e-9d2a-4c6b-8f1e-2a3b4c5d6e7f' => ['tags' => [2], 'id' => 1], '1c5a6d2f-0e3b-4d7c-9a2f-3b4c5d6e7f80' => ['tags' => [3], 'id' => 2]],
+        'insert into `docs` (`id`, `tags`) values (?, (2)), (?, (3))',
+    ],
+]);
+
+it('reads a row whose lists have integer keys as one row', function () {
+    expect(listQuery()->insert(['vec' => [2 => 0.5, 5 => 1], 'tags' => [1 => 3]]))
+        ->toBe('insert into `docs` (`vec`, `tags`) values ((0.5, 1.0), (3))');
+});
+
+dataset('rows of lists with named keys', [
+    'a vector' => [['vec' => ['x' => 1, 'y' => 2]], '`vec`', '(1.0, 2.0)'],
+    'a vector with some keys named' => [['vec' => [1, 'y' => 2]], '`vec`', '(1.0, 2.0)'],
+    'a multi-value attribute' => [['tags' => ['a' => 1, 'b' => 2]], '`tags`', '(1, 2)'],
+    'a 64-bit multi-value attribute' => [['big' => ['a' => 1]], '`big`', '(1)'],
+    'a vector array' => [['vecs' => ['a' => [1, 2], 'b' => [3, 4]]], '`vecs`', '[[1.0, 2.0], [3.0, 4.0]]'],
+    'several columns' => [['vec' => ['x' => 1], 'tags' => ['a' => 2]], '`vec`, `tags`', '(1.0), (2)'],
+    'a vector array labeled like a column' => [['vecs' => ['id' => [1, 2]]], '`vecs`', '[[1.0, 2.0]]'],
+    'a vector labeled like columns' => [['vec' => ['id' => 0.5, 'name' => 1]], '`vec`', '(0.5, 1.0)'],
+    'a multi-value attribute labeled like a column' => [['tags' => ['id' => 1]], '`tags`', '(1)'],
+]);
+
+it('inserts one row whose lists have named keys', function (array $row, string $columns, string $values) {
+    expect(listQuery()->insert($row))->toBe("insert into `docs` ({$columns}) values ({$values})");
+})->with('rows of lists with named keys');
+
+it('replaces one row whose lists have named keys', function (array $row, string $columns, string $values) {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(listColumns());
+    $connection->shouldReceive('insert')->once()
+        ->with("replace into `docs` ({$columns}) values ({$values})", [])->andReturn(true);
+
+    expect(queryOn($connection)->replace($row))->toBeTrue();
+})->with('rows of lists with named keys');
+
+it('keeps a batch whose label is the name of a list column, when the row is not that list', function (array $batch, string $sql) {
+    expect(listQuery()->insert($batch))->toBe($sql);
+})->with([
+    'a vector' => [['vec' => ['id' => 1, 'vec' => [1, 2]]], 'insert into `docs` (`id`, `vec`) values (?, (1.0, 2.0))'],
+    'a multi-value attribute' => [['tags' => ['id' => 1, 'tags' => [2]]], 'insert into `docs` (`id`, `tags`) values (?, (2))'],
+    'a vector array' => [['vecs' => ['id' => 1, 'vecs' => [[1, 2]]]], 'insert into `docs` (`id`, `vecs`) values (?, [[1.0, 2.0]])'],
+]);
+
+it('keeps a batch whose rows hold lists with named keys', function () {
+    expect(listQuery()->insert([['id' => 1, 'vec' => ['x' => 1, 'y' => 2]], ['id' => 2, 'vec' => ['x' => 3, 'y' => 4]]]))
+        ->toBe('insert into `docs` (`id`, `vec`) values (?, (1.0, 2.0)), (?, (3.0, 4.0))');
+});
+
+it('upserts one row that opens with a list', function (array $row, ?array $update, string $tuple) {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(listColumns());
+    $connection->shouldReceive('insert')->once()
+        ->with("replace into `docs` (`id`, `vec`) values (?, {$tuple})", [1])->andReturn(true);
+
+    expect(queryOn($connection)->upsert($row, 'id', $update))->toBe(1);
+})->with([
+    'a list, every column by default' => [['vec' => [1, 2], 'id' => 1], null, '(1.0, 2.0)'],
+    'a list, every column named' => [['vec' => [1, 2], 'id' => 1], ['vec', 'id'], '(1.0, 2.0)'],
+    'named keys, every column by default' => [['vec' => ['x' => 3, 'y' => 4], 'id' => 1], null, '(3.0, 4.0)'],
+]);
+
+it('keeps the columns an upsert() was told to write, when a label matches them', function () {
+    expect(fn () => listQuery()->upsert(['vec' => ['id' => 0.5], 'id' => 7, 'name' => 'new text'], 'id', ['id']))
+        ->toThrow(LogicException::class, 'Manticore can only run upsert() as a REPLACE');
+});
+
+it('refuses an upsert() that leaves out the vector a row opens with', function () {
+    expect(fn () => listQuery()->upsert(['vec' => [1, 2], 'id' => 1], 'id', ['id']))
+        ->toThrow(LogicException::class, 'Manticore can only run upsert() as a REPLACE');
+});
+
+it('reads an array without column names as a list when the column types are unknown', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('insert')->once()->andReturn(true);
+
+    expect(queryOn($connection)->upsert(['a' => [1, 2], 'b' => [3, 4]], 'id'))->toBe(1);
+});
+
+it('replaces a batch keyed by labels, casting the lists in each row', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(['vec' => 'float_vector']);
+    $connection->shouldReceive('insert')->once()
+        ->with('replace into `docs` (`id`, `vec`) values (?, (1.0, 2.0))', [1])->andReturn(true);
+
+    expect(queryOn($connection)->replace(['doc-one' => ['id' => 1, 'vec' => [1, 2]]]))->toBeTrue();
+});
+
+it('replaces one row whose first value is a list', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(['vec' => 'float_vector']);
+    $connection->shouldReceive('insert')->once()
+        ->with('replace into `docs` (`vec`, `id`) values ((1.0, 2.0), ?)', [1])->andReturn(true);
+
+    expect(queryOn($connection)->replace(['vec' => [1, 2], 'id' => 1]))->toBeTrue();
+});
 
 it('leaves a list on any other column alone', function () {
     expect(listQuery()->where('id', 1)->update(['name' => [1, 2]]))->toBe('update `docs` set `name` = ? where `id` = ?');
@@ -1171,3 +1306,186 @@ it('refuses what cannot go in a numeric column before reaching the server', func
     ['seen_at', 'not a date'],
     ['meta', 'not json'],
 ]);
+
+function vectorArrayQuery(): ManticoreQueryBuilder
+{
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->andReturn(['id' => 'bigint', 'chunks' => 'float_vector_array', 'name' => 'string']);
+    $connection->shouldReceive('update')->andReturnUsing(fn (string $sql) => $sql);
+    $connection->shouldReceive('insert')->andReturnUsing(fn (string $sql) => $sql);
+
+    return queryOn($connection);
+}
+
+it('writes a float_vector_array as an array of vectors of numbers, so nothing else reaches the SQL', function (mixed $value, string $literal) {
+    expect(vectorArrayQuery()->where('id', 1)->update(['chunks' => $value]))
+        ->toBe("update `docs` set `chunks` = {$literal} where `id` = ?");
+})->with([
+    'several vectors' => [[[1, '2.5'], [3, 4]], '[[1.0, 2.5], [3.0, 4.0]]'],
+    'one vector' => [[[0.25, -1]], '[[0.25, -1.0]]'],
+    'what it reads back as' => ['[[1.000000,0.500000],[0.000000,2.000000]]', '[[1.0, 0.5], [0.0, 2.0]]'],
+    'no vectors' => [[], '[]'],
+    'no vectors as it reads back' => ['[]', '[]'],
+    'an empty value' => ['', '[]'],
+    'a null, which has no NULL to go to' => [null, '[]'],
+    'an injection in a vector' => [[['1]]) or (1=1', 2]], '[[1.0, 2.0]]'],
+]);
+
+it('inserts a float_vector_array as an array of vectors', function () {
+    expect(vectorArrayQuery()->insert(['id' => 1, 'chunks' => [[0.1, 0.2], [0.3, 0.4]]]))
+        ->toBe('insert into `docs` (`id`, `chunks`) values (?, [[0.1, 0.2], [0.3, 0.4]])');
+});
+
+it('inserts one row whose first value is a float_vector_array', function () {
+    expect(vectorArrayQuery()->insert(['chunks' => [[0.1, 0.2]], 'id' => 1]))
+        ->toBe('insert into `docs` (`chunks`, `id`) values ([[0.1, 0.2]], ?)');
+});
+
+it('refuses a float_vector_array value that is not an array of vectors', function (mixed $value) {
+    expect(fn () => vectorArrayQuery()->where('id', 1)->update(['chunks' => $value]))
+        ->toThrow(InvalidArgumentException::class, 'Column [chunks] is of type float_vector_array');
+})->with([
+    'a flat list, which the server cannot split into vectors' => [[0.1, 0.2]],
+    'a flat list as a string' => ['[0.1, 0.2]'],
+    'a word' => ['many'],
+    'an injection in a string' => ['[[1]]) or (1=1'],
+    'a JSON object, whose keys would be dropped' => ['{"embedding": [1, 2]}'],
+    'vectors as JSON objects' => ['[{"x": 1, "y": 2}]'],
+    'a vector as a component, which would be cast to 1.0' => [[[[1, 2], 3]]],
+    'a vector as a component, in a string' => ['[[[1, 2], 3]]'],
+    'a JSON object as a component' => ['[[{"x": 1}, 2]]'],
+]);
+
+it('refuses knn() by document id on a float_vector_array column', function (int|string $id) {
+    expect(fn () => vectorArrayQuery()->knn('chunks', $id, 5)->toSql())
+        ->toThrow(LogicException::class, 'knn() by document id');
+})->with([3, '550e8400-e29b-41d4-a716-446655440000']);
+
+it('searches a float_vector_array column with one query vector, as a float_vector', function () {
+    expect(vectorArrayQuery()->knn('chunks', [1, 0], 5)->toSql())->toContain('where knn(`chunks`, 5, (1.0, 0.0))');
+});
+
+it('leaves an auto-embeddings float_vector_array out of the emulated partial replace', function () {
+    $uuid = '550e8400-e29b-41d4-a716-446655440000';
+
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('getName')->andReturn('manticore');
+    $connection->shouldReceive('columnTypes')->with('articles')
+        ->andReturn(['id' => 'uuid', 'title' => 'text', 'chunks' => 'float_vector_array', 'kept' => 'float_vector_array']);
+    $connection->shouldReceive('insert')->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', $uuid])->never();
+    $connection->shouldReceive('select')->with('DESC articles')->andReturn([
+        (object) ['Field' => 'id', 'Type' => 'uuid', 'Properties' => ''],
+        (object) ['Field' => 'title', 'Type' => 'text', 'Properties' => 'indexed stored'],
+        (object) ['Field' => 'chunks', 'Type' => 'float_vector_array', 'Properties' => 'knn'],
+        (object) ['Field' => 'kept', 'Type' => 'float_vector_array', 'Properties' => 'knn'],
+    ]);
+    $connection->shouldReceive('select')->with('SHOW CREATE TABLE articles')->andReturn([
+        (object) ['Table' => 'articles', 'Create Table' => "CREATE TABLE articles (\nid uuid,\ntitle text,\nchunks float_vector_array knn_type='hnsw' hnsw_similarity='L2' model_name='sentence-transformers/all-MiniLM-L6-v2' from='title' chunk_strategy='sentence',\nkept float_vector_array knn_type='hnsw' knn_dims='2' hnsw_similarity='L2'\n)"],
+    ]);
+    $connection->shouldReceive('select')
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === 'select * from `articles` where `id` = ? limit 1' && $bindings === [$uuid])
+        ->andReturn([(object) ['title' => 'old text', 'id' => $uuid, 'chunks' => '[[0.500000,0.600000]]', 'kept' => '[[0.100000,0.200000]]']]);
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with('replace into `articles` (`title`, `id`, `kept`) values (?, ?, [[0.1, 0.2]])', ['new text', $uuid])
+        ->andReturn(true);
+
+    expect(queryOn($connection, 'articles')->replaceWhereId($uuid, ['title' => 'new text']))->toBeTrue();
+});
+
+/**
+ * A connection to `articles`, whose `vec` is a float_vector defined as $vec in SHOW CREATE TABLE.
+ */
+function articlesWithVector(string $vec): ManticoreConnection
+{
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('columnTypes')->with('articles')
+        ->andReturn(['id' => 'bigint', 'title' => 'text', 'tag' => 'string', 'vec' => 'float_vector']);
+    $connection->shouldReceive('select')->with('SHOW CREATE TABLE articles')->andReturn([
+        (object) ['Table' => 'articles', 'Create Table' => "CREATE TABLE articles (\nid bigint,\ntitle text,\ntag string attribute,\nvec {$vec}\n)"],
+    ]);
+
+    return $connection;
+}
+
+it('replaces the whole document by a numeric id when it has an auto-embeddings column, since a partial REPLACE keeps the old vector', function () {
+    $connection = articlesWithVector("float_vector knn_type='hnsw' hnsw_similarity='COSINE' model_name='openai:embed' from='title' api_url='http://litellm:4000/v1/embeddings'");
+    $connection->shouldReceive('select')->with('DESC articles')->andReturn([
+        (object) ['Field' => 'id', 'Type' => 'bigint', 'Properties' => ''],
+        (object) ['Field' => 'title', 'Type' => 'text', 'Properties' => 'indexed stored'],
+        (object) ['Field' => 'tag', 'Type' => 'string', 'Properties' => ''],
+        (object) ['Field' => 'vec', 'Type' => 'float_vector', 'Properties' => 'knn'],
+    ]);
+    $connection->shouldReceive('select')
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === 'select * from `articles` where `id` = ? limit 1' && $bindings === [42])
+        ->andReturn([(object) ['id' => 42, 'title' => 'old text', 'tag' => 'kept', 'vec' => '0.5,0.6']]);
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with('replace into `articles` (`id`, `title`, `tag`) values (?, ?, ?)', [42, 'new text', 'kept'])
+        ->andReturn(true);
+
+    expect(queryOn($connection, 'articles')->replaceWhereId(42, ['title' => 'new text']))->toBeTrue();
+});
+
+it('keeps the native partial replace by a numeric id when no vector is generated by the server', function () {
+    $connection = articlesWithVector("float_vector knn_type='hnsw' knn_dims='2' hnsw_similarity='L2'");
+    $connection->shouldReceive('insert')
+        ->once()
+        ->with('replace into `articles` set `title` = ? where `id` = ?', ['new text', 42])
+        ->andReturn(true);
+
+    expect(queryOn($connection, 'articles')->replaceWhereId(42, ['title' => 'new text']))->toBeTrue();
+});
+
+it('leaves the document out of knn() by a numeric id, which Manticore only does when the select lists id', function (int|string $id) {
+    $q = manticoreQuery('docs')->select('title')->knn('embedding', $id, k: 10);
+
+    expect($q->toSql())->toBe(unlimited('select `title` from `docs` where knn(embedding, 10, 42) and `id` != ?'))
+        ->and($q->getBindings())->toBe([42]);
+})->with(['an integer' => 42, 'a numeric string' => '42']);
+
+it('adds no id filter to knn() by a vector', function () {
+    expect(manticoreQuery('docs')->knn('embedding', [0.1, 0.2], k: 10)->getBindings())->toBe([]);
+});
+
+it('compiles knnText() with the text bound, which Manticore embeds with the model of the column', function () {
+    $q = manticoreQuery('docs')->knnText('embedding', "it's a purse", k: 5);
+
+    expect($q->toSql())->toBe(unlimited('select * from `docs` where knn(`embedding`, 5, ?)'))
+        ->and($q->getBindings())->toBe(["it's a purse"]);
+});
+
+it('adds the ef argument to knnText()', function () {
+    expect(manticoreQuery('docs')->knnText('embedding', 'purse', 10, ['ef' => 100, 'rescore' => true])->toSql())
+        ->toContain('knn(`embedding`, 10, ?, {ef=100, rescore=1})');
+});
+
+it('takes an integer ef in knnText(), as in knn()', function () {
+    expect(manticoreQuery('docs')->knnText('embedding', 'purse', 10, 2000)->toSql())
+        ->toContain('knn(`embedding`, 10, ?, {ef=2000})');
+});
+
+it('keeps the knnText() binding in the order of the filters', function () {
+    $q = manticoreQuery('docs')->where('tag', 'x')->knnText('embedding', 'purse')->where('views', 1);
+
+    expect($q->getBindings())->toBe(['x', 'purse', 1]);
+});
+
+it('runs knnText() as one query, without reading a document first', function () {
+    $connection = mockManticoreConnection();
+    $connection->shouldReceive('getTablePrefix')->andReturn('');
+    $connection->shouldReceive('select')
+        ->once()
+        ->withArgs(fn (string $sql, array $bindings = []) => $sql === unlimited('select * from `docs` where knn(`embedding`, 10, ?)') && $bindings === ['550e8400-e29b-41d4-a716-446655440000'])
+        ->andReturn([]);
+
+    queryOn($connection)->knnText('embedding', '550e8400-e29b-41d4-a716-446655440000')->get();
+});
+
+it('takes knnText() on a float_vector_array column', function () {
+    expect(vectorArrayQuery()->knnText('chunks', 'how do I rotate a certificate')->toSql())
+        ->toContain('knn(`chunks`, 10, ?)');
+});

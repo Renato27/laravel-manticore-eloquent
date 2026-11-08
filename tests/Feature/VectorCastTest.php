@@ -26,6 +26,10 @@ it('writes a vector as a bare tuple literal, never as a binding', function () {
         ->toContain('values ((0.1, 2.0, 0.35))');
 });
 
+it('refuses a list inside the vector, whose parts would be cast to 1.0', function () {
+    expect(fn () => new CastDoc(['embedding' => [[0.1, 0.2], 0.3]]))->toThrow(InvalidArgumentException::class, 'Column [embedding] takes a list of numbers');
+});
+
 it('reads the vector back as floats, from the database and from a fresh set', function () {
     $model = new CastDoc;
 

@@ -163,6 +163,50 @@ it('appends extra hnsw tuning options to a float_vector column', function () {
     expect($sql)->toContain("hnsw_similarity='cosine' hnsw_m='16' hnsw_ef_construction='200'");
 });
 
+it('compiles a float_vector_array column with knn options', function () {
+    $sql = manticoreSchemaSql('t', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->addColumn('floatVectorArray', 'embeddings', ['dims' => 384, 'knnType' => 'hnsw', 'similarity' => 'L2']);
+    })[0];
+
+    expect($sql)->toBe("create table `t` (`embeddings` float_vector_array knn_type='hnsw' knn_dims='384' hnsw_similarity='L2')");
+});
+
+it('appends extra hnsw tuning options to a float_vector_array column', function () {
+    $sql = manticoreSchemaSql('t', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->addColumn('floatVectorArray', 'chunks', [
+            'dims' => 768,
+            'knnType' => 'hnsw',
+            'similarity' => 'cosine',
+            'knnOptions' => ['hnsw_m' => 16, 'quantization' => '8bit'],
+        ]);
+    })[0];
+
+    expect($sql)->toContain("`chunks` float_vector_array knn_type='hnsw' knn_dims='768' hnsw_similarity='cosine' hnsw_m='16' quantization='8bit'");
+});
+
+it('compiles a float_vector_array column without knn, which takes no options', function () {
+    $sql = manticoreSchemaSql('t', function (Blueprint $blueprint) {
+        $blueprint->create();
+        $blueprint->addColumn('floatVectorArray', 'chunks');
+    })[0];
+
+    expect($sql)->toBe('create table `t` (`chunks` float_vector_array)');
+});
+
+it('refuses options on a float_vector_array without knn, which the server would drop', function (array $options) {
+    expect(fn () => manticoreSchemaSql('t', function (Blueprint $blueprint) use ($options) {
+        $blueprint->create();
+        $blueprint->addColumn('floatVectorArray', 'notes', $options);
+    }))->toThrow(InvalidArgumentException::class, 'Column [notes] has no knnType');
+})->with([
+    'dims' => [['dims' => 3]],
+    'a similarity' => [['similarity' => 'L2']],
+    'tuning options' => [['knnOptions' => ['hnsw_m' => 16]]],
+    'a model, which would never embed' => [['knnOptions' => ['model_name' => 'sentence-transformers/all-MiniLM-L6-v2', 'from' => 'title']]],
+]);
+
 it('compiles multi-value attributes', function () {
     $sql = manticoreSchemaSql('docs_rt', function (Blueprint $blueprint) {
         $blueprint->create();

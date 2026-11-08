@@ -39,6 +39,10 @@ Constraints that come from Manticore, not from this driver:
   so when Manticore rejects the statement the driver reads the document, overlays your fields
   and rewrites all of it. A write to that document in between is lost, and vector values go
   through their text form, which keeps about 8 significant digits.
+- **On a table with an [auto embeddings](vector-search.md#searching-by-text) column it is not
+  atomic either, whatever the id.** Buddy's partial replace keeps the old vector, so the driver
+  rewrites the whole document as above, leaving that column out so the server embeds the new
+  text. The manual does not cover this; `AutoEmbeddingsTest` shows it.
 
 ## Multi-value attributes
 
@@ -56,3 +60,9 @@ Article::where('tag_ids', 2)->get();      // documents holding 2 among their tag
 
 The Query Builder also takes a list when writing, as in `insert(['tag_ids' => [1, 2]])`, and reads
 it back as the string `'1,2'`.
+
+`insert()`, `replace()` and `upsert()` take one row or a list of rows. An array under a key that
+names a vector or multi-value column, in that column's shape, is that column's value, even when
+its keys are named. So a batch must not label a row with the name of such a column if the row
+could be read as its value: use other labels, or none.
+Through a model, `upsert()` takes a list of rows, as in Laravel.
