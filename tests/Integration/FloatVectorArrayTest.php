@@ -131,6 +131,18 @@ it('writes a row whose only value is a vector array with named keys', function (
         ]);
 });
 
+it('writes a vector array whose labels are the names of columns', function () {
+    chunkedTable()->insert(['notes' => ['id' => [1, 2]]]);
+    chunkedTable()->replace(['notes' => ['title' => [3, 4], 'id' => [5, 6]]]);
+
+    expect(chunkedTable()->upsert(['notes' => ['id' => [7, 8]]], 'id'))->toBe(1)
+        ->and(chunkedTable()->pluck('notes')->map(fn ($notes) => json_decode($notes))->sortBy(fn ($notes) => $notes[0][0])->values()->all())->toEqual([
+            [[1, 2]],
+            [[3, 4], [5, 6]],
+            [[7, 8]],
+        ]);
+});
+
 it('refuses knn() by document id on a float_vector_array', function () {
     ChunkedArticle::create(['id' => 1, 'title' => 'a', 'chunks' => [[1, 0]]]);
 

@@ -1159,6 +1159,9 @@ dataset('rows of lists with named keys', [
     'a 64-bit multi-value attribute' => [['big' => ['a' => 1]], '`big`', '(1)'],
     'a vector array' => [['vecs' => ['a' => [1, 2], 'b' => [3, 4]]], '`vecs`', '[[1.0, 2.0], [3.0, 4.0]]'],
     'several columns' => [['vec' => ['x' => 1], 'tags' => ['a' => 2]], '`vec`, `tags`', '(1.0), (2)'],
+    'a vector array labeled like a column' => [['vecs' => ['id' => [1, 2]]], '`vecs`', '[[1.0, 2.0]]'],
+    'a vector labeled like columns' => [['vec' => ['id' => 0.5, 'name' => 1]], '`vec`', '(0.5, 1.0)'],
+    'a multi-value attribute labeled like a column' => [['tags' => ['id' => 1]], '`tags`', '(1)'],
 ]);
 
 it('inserts one row whose lists have named keys', function (array $row, string $columns, string $values) {
@@ -1175,10 +1178,13 @@ it('replaces one row whose lists have named keys', function (array $row, string 
     expect(queryOn($connection)->replace($row))->toBeTrue();
 })->with('rows of lists with named keys');
 
-it('keeps a batch whose label is the name of a list column', function () {
-    expect(listQuery()->insert(['vec' => ['id' => 1, 'vec' => [1, 2]]]))
-        ->toBe('insert into `docs` (`id`, `vec`) values (?, (1.0, 2.0))');
-});
+it('keeps a batch whose label is the name of a list column, when the row is not that list', function (array $batch, string $sql) {
+    expect(listQuery()->insert($batch))->toBe($sql);
+})->with([
+    'a vector' => [['vec' => ['id' => 1, 'vec' => [1, 2]]], 'insert into `docs` (`id`, `vec`) values (?, (1.0, 2.0))'],
+    'a multi-value attribute' => [['tags' => ['id' => 1, 'tags' => [2]]], 'insert into `docs` (`id`, `tags`) values (?, (2))'],
+    'a vector array' => [['vecs' => ['id' => 1, 'vecs' => [[1, 2]]]], 'insert into `docs` (`id`, `vecs`) values (?, [[1.0, 2.0]])'],
+]);
 
 it('keeps a batch whose rows hold lists with named keys', function () {
     expect(listQuery()->insert([['id' => 1, 'vec' => ['x' => 1, 'y' => 2]], ['id' => 2, 'vec' => ['x' => 3, 'y' => 4]]]))
@@ -1198,6 +1204,11 @@ it('upserts one row that opens with a list', function (array $row, ?array $updat
     'a list, every column named' => [['vec' => [1, 2], 'id' => 1], ['vec', 'id'], '(1.0, 2.0)'],
     'named keys, every column by default' => [['vec' => ['x' => 3, 'y' => 4], 'id' => 1], null, '(3.0, 4.0)'],
 ]);
+
+it('keeps the columns an upsert() was told to write, when a label matches them', function () {
+    expect(fn () => listQuery()->upsert(['vec' => ['id' => 0.5], 'id' => 7, 'name' => 'new text'], 'id', ['id']))
+        ->toThrow(LogicException::class, 'Manticore can only run upsert() as a REPLACE');
+});
 
 it('refuses an upsert() that leaves out the vector a row opens with', function () {
     expect(fn () => listQuery()->upsert(['vec' => [1, 2], 'id' => 1], 'id', ['id']))

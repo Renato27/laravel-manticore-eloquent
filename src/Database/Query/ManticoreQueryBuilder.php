@@ -342,7 +342,7 @@ class ManticoreQueryBuilder extends Builder
      */
     protected function isListColumn(string $column): bool
     {
-        return in_array($this->columnType($column), ['mva', 'mva64', 'float_vector', 'float_vector_array'], true);
+        return in_array($this->columnType($column), ['mva', 'mva64', 'float_vector'], true);
     }
 
     /**
@@ -377,7 +377,7 @@ class ManticoreQueryBuilder extends Builder
     protected function isBatch(array $values): bool
     {
         foreach ($values as $key => $value) {
-            if (! is_array($value) || $this->isListValue((string) $key, $value)) {
+            if (! is_array($value) || $this->isColumnValue((string) $key, $value)) {
                 return false;
             }
         }
@@ -386,16 +386,18 @@ class ManticoreQueryBuilder extends Builder
     }
 
     /**
-     * Whether an array is the list of a column rather than a row. A list without column names is
-     * never a row. One with named keys is a list when it sits under a list column, unless those
-     * keys are all columns of the table, as in a batch that labels a row with a column's name.
+     * Whether an array is the value of a column rather than a row. An array without column names
+     * cannot be a row. Named keys say nothing, since a vector may be labeled with anything, even
+     * the name of a column, so what decides is the column its key names: an array of the shape
+     * that column declares is its value.
      */
-    protected function isListValue(string $key, array $value): bool
+    protected function isColumnValue(string $key, array $value): bool
     {
-        $keys = array_keys($value);
-
-        return array_filter($keys, 'is_string') === []
-            || ($this->isListColumn($key) && array_filter($keys, fn ($name) => $this->columnType($name) === null) !== []);
+        return array_filter(array_keys($value), 'is_string') === [] || match ($this->columnType($key)) {
+            'mva', 'mva64', 'float_vector' => VectorArray::isFlatList($value),
+            'float_vector_array' => VectorArray::isListOfVectors($value),
+            default => false,
+        };
     }
 
     /**
@@ -416,12 +418,6 @@ class ManticoreQueryBuilder extends Builder
         }
 
         $rows = $this->isBatch($values) ? $values : [$values];
-
-        // Eloquent takes a row that opens with a list for a batch, so it names that list's keys as the columns to write.
-        if ($rows === [$values] && is_array(reset($values)) && $update === array_keys(reset($values))) {
-            $update = null;
-        }
-
         $columns = array_keys(reset($rows));
 
         if ((array) $uniqueBy !== ['id'] || array_diff($columns, $update ?? $columns, ['id']) !== []) {

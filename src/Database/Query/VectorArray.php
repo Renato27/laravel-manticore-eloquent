@@ -25,7 +25,7 @@ final class VectorArray
     {
         $vectors = is_string($value) ? self::parse($value) : $value;
 
-        if ($vectors === null || array_filter($vectors, static fn ($vector) => ! self::isFlatList($vector)) !== []) {
+        if ($vectors === null || ! self::isListOfVectors($vectors)) {
             throw new InvalidArgumentException("Column [{$column}] is of type float_vector_array, so it takes a list of vectors, such as [[0.1, 0.2], [0.3, 0.4]].");
         }
 
@@ -42,6 +42,16 @@ final class VectorArray
     public static function isFlatList(mixed $value): bool
     {
         return is_array($value) && array_filter($value, static fn ($part) => is_array($part) || is_object($part)) === [];
+    }
+
+    /**
+     * Whether every value of an array is a vector.
+     *
+     * @param  array<int|string, mixed>  $value
+     */
+    public static function isListOfVectors(array $value): bool
+    {
+        return array_filter($value, static fn ($vector) => ! self::isFlatList($vector)) === [];
     }
 
     /**
