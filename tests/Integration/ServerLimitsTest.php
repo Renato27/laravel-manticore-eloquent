@@ -300,12 +300,15 @@ it('returns no rows for an alias that repeats the column in a join', function ()
     expect(DB::connection('manticore')->select('SELECT limits_a.id AS id FROM limits_a INNER JOIN limits_b ON limits_a.id = limits_b.a_id'))->toHaveCount(0);
 });
 
-it('finds elements of a JSON array of strings with IN, but not of numbers', function () {
+it('finds elements of a JSON array of strings with IN, and of numbers only on newer servers', function () {
+    // The manual does not say, so this test is the proof: on 29.9.0 and older j.l IN (2) finds nothing;
+    // on 31.0.16 and 32.1.3 it finds id 1 (l = [1,2], from beforeEach) and id 3.
     $db = DB::connection('manticore');
     $db->statement('REPLACE INTO limits_a (id, j) VALUES (3, \'{"s":["x"],"l":[2]}\')');
+    $version = strtok($db->selectOne("SHOW STATUS LIKE 'version'")->Value, ' ');
 
     expect($db->select("SELECT id FROM limits_a WHERE j.s IN ('x')"))->toHaveCount(1)
-        ->and($db->select('SELECT id FROM limits_a WHERE j.l IN (2)'))->toHaveCount(0);
+        ->and($db->select('SELECT id FROM limits_a WHERE j.l IN (2)'))->toHaveCount(version_compare($version, '31.0.16', '>=') ? 2 : 0);
 });
 
 it('takes these alternatives the manual gives for what WHERE cannot do', function () {
